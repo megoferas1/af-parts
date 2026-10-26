@@ -41,7 +41,7 @@ export function StickerSheet({ labels, title, close }) {
   return html`<${Sheet} title=${title || 'طباعة استيكرات'} sub=${`${labels.length} استيكر · ${pages} ${pages === 1 ? 'ورقة' : 'ورق'} A4`} onClose=${close}>
     <div class="sticker-pv">
       ${pv ? html`<img src=${pv} alt="" />` : html`<div class="spin"></div>`}
-      <div class="grow"><img class="sp-logo" src="assets/logo-full.png" alt="" /><b class="ltr-t">${l0.code}</b>
+      <div class="grow"><img class="sp-logo" src="logo-full.png" alt="" /><b class="ltr-t">${l0.code}</b>
         ${l0.title ? html`<span>${l0.title}</span>` : html`<i class="line"></i>`}${l0.sub ? html`<small>${l0.sub}</small>` : html`<i class="line"></i>`}</div>
     </div>
     <div class="note info"><${Icon} name="printer" size=${18} /><span>استخدم ورق استيكر A4 فيه <b>21 استيكر (63.5 × 38.1 مم)</b>، واطبع بمقاس <b>100% / Actual size</b> مش "Fit to page".</span></div>

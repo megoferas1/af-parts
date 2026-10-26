@@ -167,7 +167,7 @@ export function ShipmentSheet({ id, close }) {
       const i = idx.items.get(x.item_id);
       if (!i) return null;
       return html`<div class="trow" key=${x.item_id}>
-        <div class="grow"><div class="irow-title">${i.name}${i.size && html`<span class="size">${i.size}</span>`}</div><div class="irow-sub"><span class="code">${i.code}</span>${i.name_en && html`<span class="ltr-t">${i.name_en}</span>`}<span>عندنا ${i.qty}</span></div></div>
+        <div class="grow"><div class="irow-title">${i.name}${i.size && html`<span class="size">${i.size}</span>`}</div><div class="irow-sub">${i.code && html`<span class="code">${i.code}</span>`}${i.name_en && html`<span class="ltr-t">${i.name_en}</span>`}<span>عندنا ${i.qty}</span></div></div>
         ${draft ? html`<${Stepper} value=${x.qty} min=${0} max=${i.qty} onChange=${(v) => run(() => call('shipment_set_qty', { p_ship: id, p_item: i.id, p_qty: v }))} />` : html`<div class="qty"><b class="num">${x.qty}</b></div>`}
       </div>`;
     })}</div>`}

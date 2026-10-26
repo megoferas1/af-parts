@@ -39,7 +39,7 @@ export function ItemRow({ item, onClick, showOwner = true, right, extra }) {
     <div class="grow irow-main">
       <div class="irow-title">${item.name}${item.size && html`<span class="size">${item.size}</span>`}</div>
       <div class="irow-sub">
-        <span class="code">${item.code}</span>
+        ${item.code && html`<span class="code">${item.code}</span>`}
         ${showOwner && item.kind === 'part' && html`<span>${ownerText(item, idx)}</span>`}
         ${item.kind !== 'part' && item.category && html`<span>${item.category}</span>`}
         ${item.location && html`<span>📍 ${item.location}</span>`}
@@ -55,10 +55,12 @@ export function ItemRow({ item, onClick, showOwner = true, right, extra }) {
 }
 
 /* تجميع حسب النوع */
-export function groupBy(items, keyFn, order) {
+export function groupBy(items, keyFn, order, nameFn) {
   const m = new Map();
   items.forEach((i) => { const k = keyFn(i) || 'من غير نوع'; if (!m.has(k)) m.set(k, []); m.get(k).push(i); });
   const ent = [...m.entries()];
+  const nm = nameFn || ((i) => i.name || '');
+  ent.forEach(([, arr]) => arr.sort((a, b) => L.cmpName(nm(a), nm(b))));
   if (!order) return ent;
   const pos = (k) => (k === 'من غير نوع' ? 1e6 : k === 'تانية' ? 1e5 : order.indexOf(k) === -1 ? 5e4 : order.indexOf(k));
   return ent.sort((a, b) => pos(a[0]) - pos(b[0]));
@@ -95,7 +97,7 @@ export function ItemSheet({ id, close }) {
     setBusy(false);
   }
   async function del() {
-    const ok = await confirmBox({ title: 'مسح ' + item.name + '؟', text: 'هتتمسح بكل السجل بتاعها، والاستيكر بتاعها يرجع فاضي. مفيش رجوع.', ok: 'امسح', danger: true });
+    const ok = await confirmBox({ title: 'مسح ' + item.name + '؟', text: 'هتتمسح بكل السجل بتاعها' + (item.code ? '، والاستيكر بتاعها يرجع فاضي' : '') + '. مفيش رجوع.', ok: 'امسح', danger: true });
     if (!ok) return;
     const r = await run(() => call('delete_item', { p_item: item.id }), 'اتمسحت');
     if (r.ok) { if (r.r && r.r.delete) removePhotoFile(r.r.delete); close(); }
@@ -107,7 +109,7 @@ export function ItemSheet({ id, close }) {
       ${item.photo_path ? html`<img class="iphoto" src=${photoUrl(item.photo_path)} alt="" />` : html`<${Thumb} item=${item} size="lg" />`}
       <div class="grow">
         <div class="row wrap gap8">
-          <span class="codechip">${item.code}</span>
+          ${item.code && html`<span class="codechip">${item.code}</span>`}
           ${item.size && html`<${Pill} tone="dark">${item.size}<//>`}
           ${item.category && html`<${Pill}>${item.category}<//>`}
         </div>
@@ -139,7 +141,7 @@ export function ItemSheet({ id, close }) {
       <${Act} icon="edit" label="تعديل" onClick=${() => openSheet(ItemForm, { id })} />
       <label class=${'act ' + (busy ? 'disabled' : '')}><span class="act-ic">${busy ? html`<div class="spin sm"></div>` : html`<${Icon} name="camera" size=${24} />`}</span><span class="act-lb">${item.photo_path ? 'غيّر الصورة' : 'صورة'}</span>
         <input type="file" accept="image/*" capture="environment" hidden onChange=${onPhoto} /></label>
-      <${Act} icon="printer" label="استيكر" onClick=${() => openSheet(StickerSheet, { labels: [labelFor(item, idx)], title: 'استيكر ' + item.code })} />
+      ${item.code && html`<${Act} icon="printer" label="استيكر" onClick=${() => openSheet(StickerSheet, { labels: [labelFor(item, idx)], title: 'استيكر ' + item.code })} />`}
       ${isAdmin() && html`<${Act} icon="trash" label="مسح" onClick=${del} />`}
     </div>
 
@@ -153,7 +155,7 @@ export function ItemSheet({ id, close }) {
 export function KindChooser({ code, onPick, close }) {
   return html`<${Sheet} title="دي إيه؟" sub=${code ? 'الاستيكر ' + code + ' لسه فاضي، سجّله' : 'اختار نوع الحاجة'} onClose=${close}>
     <div class="kinds">
-      ${['part', 'tool', 'product'].map((k) => html`<button class=${'kindbtn k-' + k} onClick=${() => { close(); onPick(k); }}>
+      ${(code ? ['part', 'product'] : ['part', 'tool', 'product']).map((k) => html`<button class=${'kindbtn k-' + k} onClick=${() => { close(); onPick(k); }}>
         <span class="kindbtn-ic"><${Icon} name=${L.KIND[k].icon} size=${30} /></span>
         <span><b>${L.KIND[k].label}</b><small>${k === 'part' ? 'قطعة بتاعة سواق' : k === 'tool' ? 'عدة، كراسي، خيام…' : 'حاجة بنصنّعها للتصدير'}</small></span>
       </button>`)}
@@ -167,7 +169,7 @@ export function startNewItem(opts = {}) {
   openSheet(KindChooser, { code: opts.code, onPick: (kind) => openSheet(ItemForm, { ...opts, kind }) });
 }
 
-export function ItemForm({ id, kind: kindIn, code, preset, scanNext, close }) {
+export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, close }) {
   const { idx } = useStore();
   const old = id ? idx.items.get(id) : null;
   const kind = old ? old.kind : kindIn || 'part';
@@ -223,23 +225,24 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, close }) {
     await reload().catch(() => {});
     setBusy(false);
     if (id) { toast('اتحفظ'); close(); return; }
-    toast('اتسجلت ✓ ' + res.code);
+    toast('اتسجلت ✓' + (res.code ? ' ' + res.code : ''));
     if (mode === 'again') {
       setF((x) => ({ ...x, name: '', name_en: '', size: '', qty: 1, note: '' }));
       setPhoto(null); setPreview('');
       return;
     }
     close();
+    if (onCreated) { onCreated(res.id, f.qty); return; }
     if (mode === 'scan' && scanNext) { scanNext(); return; }
     openSheet(ItemSheet, { id: res.id });
   }
 
   const title = id ? 'تعديل ' + old.name : 'تسجيل ' + L.KIND[kind].label;
-  return html`<${Sheet} title=${title} sub=${id ? old.code : code ? 'الكود: ' + code + ' (من الاستيكر)' : 'هتاخد كود جديد أوتوماتيك'} onClose=${close}
+  return html`<${Sheet} title=${title} sub=${id ? (old.code || L.KIND[kind].label) : code ? 'الكود: ' + code + ' (من الاستيكر)' : kind === 'tool' ? 'العدة من غير كود' : 'هتاخد كود جديد أوتوماتيك'} onClose=${close}
     footer=${html`<div class="stack">
       <button class="btn bigbtn" disabled=${busy} onClick=${() => save('open')}>${busy ? 'لحظة...' : html`<${Icon} name="check" size=${22} /> حفظ`}</button>
       ${!id && code && scanNext && html`<button class="btn ghost" disabled=${busy} onClick=${() => save('scan')}><${Icon} name="scan" size=${20} /> حفظ وامسح الاستيكر اللي بعده</button>`}
-      ${!id && !code && html`<button class="btn ghost" disabled=${busy} onClick=${() => save('again')}><${Icon} name="plus" size=${20} /> حفظ وسجّل حاجة تانية</button>`}
+      ${!id && !code && !onCreated && html`<button class="btn ghost" disabled=${busy} onClick=${() => save('again')}><${Icon} name="plus" size=${20} /> حفظ وسجّل حاجة تانية</button>`}
     </div>`}>
 
     ${kind === 'part' && html`
@@ -400,7 +403,7 @@ export function ItemPicker({ title, kinds = ['part', 'tool', 'product'], limit, 
     if (kind === 'part' && drv) arr = arr.filter((i) => i.driver_id === drv);
     if (q) arr = arr.filter((i) => L.matches(idx.hay.get(i.id), q));
     if (exclude) arr = arr.filter((i) => !exclude(i));
-    return arr.slice().sort((a, b) => (maxOf(b) > 0) - (maxOf(a) > 0) || a.name.localeCompare(b.name, 'ar'));
+    return arr.slice().sort((a, b) => (maxOf(b) > 0) - (maxOf(a) > 0) || L.cmpName(a.name, b.name));
   }, [idx, kind, q, drv]);
   const toggle = (i) => setSel((m) => { const n = new Map(m); if (n.has(i.id)) n.delete(i.id); else n.set(i.id, Math.min(1, maxOf(i)) || 1); return n; });
   const setQ2 = (i, v) => setSel((m) => { const n = new Map(m); n.set(i.id, v); return n; });
@@ -424,7 +427,7 @@ export function ItemPicker({ title, kinds = ['part', 'tool', 'product'], limit, 
           <button class="pick-main" disabled=${mx < 1} onClick=${() => toggle(i)}>
             <span class="tick">${on && html`<${Icon} name="check" size=${16} stroke=${3} />`}</span>
             <div class="grow"><div class="irow-title">${i.name}${i.size && html`<span class="size">${i.size}</span>`}</div>
-              <div class="irow-sub"><span class="code">${i.code}</span>${i.kind === 'part' && html`<span>${ownerText(i, idx)}</span>`}<span>متاح: <b class="num">${mx}</b></span></div></div>
+              <div class="irow-sub">${i.code && html`<span class="code">${i.code}</span>`}${i.kind === 'part' && html`<span>${ownerText(i, idx)}</span>`}<span>متاح: <b class="num">${mx}</b></span></div></div>
           </button>
           ${on && mx > 1 && html`<div class="pick-qty"><${Stepper} value=${sel.get(i.id)} min=${1} max=${mx} onChange=${(v) => setQ2(i, v)} /></div>`}
         </div>`;

@@ -12,7 +12,7 @@ async function fontsReady() {
 }
 const logos = {};
 /* لوجو الكشوفات = AF Fabworks الأصلي، ولوجو الاستيكرات = AF Parts */
-function loadLogo(src = 'assets/logo-fabworks.png') {
+function loadLogo(src = 'logo-fabworks.png') {
   if (!logos[src]) {
     logos[src] = new Promise((resolve) => {
       const i = new Image();
@@ -345,7 +345,7 @@ async function labelImage(lab, logo) {
 
 export async function buildStickersPdf(labels, onProgress) {
   await Promise.all([fontsReady(), loadQrGen()]);
-  const logo = await loadLogo('assets/logo-report.png');
+  const logo = await loadLogo('logo-report.png');
   const jsPDF = await jsPDFCtor();
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
   for (let i = 0; i < labels.length; i++) {

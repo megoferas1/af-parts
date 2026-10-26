@@ -166,7 +166,7 @@ export function Hero({ title, sub, right, back }) {
   return html`<header class="hero">
     <div class="hero-top">
       ${back ? html`<button class="iconbtn" onClick=${back} aria-label="رجوع"><${Icon} name="back" size=${22} /></button>`
-        : html`<div class="brand"><img src="assets/logo-mark.png" alt="AF" /><span>AF PARTS</span></div>`}
+        : html`<div class="brand"><img src="logo-mark.png" alt="AF" /><span>AF PARTS</span></div>`}
       <div class="row gap8">${right}</div>
     </div>
     ${title && html`<h1 class="hero-title">${title}</h1>`}
@@ -179,7 +179,7 @@ export function BottomNav({ items, tab, onGo }) {
     <span class="nav-ic"><${Icon} name=${it.icon} size=${23} />${it.badge > 0 && html`<i class="cnt">${it.badge > 9 ? '9+' : it.badge}</i>`}</span><span class="nav-lb">${it.label}</span></button>`)}</nav>`;
 }
 
-export const Splash = ({ text, children }) => html`<div class="splash"><img src="assets/logo-full.png" alt="AF PARTS" /><div class="spin light"></div>${text && html`<div class="soft-light">${text}</div>`}${children}</div>`;
+export const Splash = ({ text, children }) => html`<div class="splash"><img src="logo-full.png" alt="AF PARTS" /><div class="spin light"></div>${text && html`<div class="soft-light">${text}</div>`}${children}</div>`;
 
 /* صف عنوان قسم */
 export const SecTitle = ({ children, right }) => html`<div class="sec-title"><span class="grow">${children}</span>${right}</div>`;

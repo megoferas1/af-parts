@@ -1,6 +1,6 @@
 /* app.js — نقطة البداية: الدخول والتابات */
 import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js';
-import { SUPABASE_URL } from '../config.js';
+import { SUPABASE_URL } from './config.js';
 import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js';
 import { useStore, reload, resetStore, getStore } from './store.js';
 import { HomeTab } from './home.js';
@@ -62,7 +62,7 @@ function Login({ onIn }) {
   }
   const enter = (fn) => (e) => { if (e.key === 'Enter') fn(); };
   return html`<div class="login">
-    <div class="login-cover"><img src="assets/logo-full.png" alt="AF PARTS" /></div>
+    <div class="login-cover"><img src="logo-full.png" alt="AF PARTS" /></div>
     <div class="login-card">
       <${Segmented} value=${role} onChange=${setRole} items=${[['staff', 'موظف'], ['admin', 'الإدارة']]} />
       ${role === 'staff' ? html`

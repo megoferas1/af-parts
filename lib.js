@@ -59,7 +59,7 @@ export const TRIP_KIND = {
 };
 export const TRIP_STATUS = {
   prep: { label: 'بيتحضّر', tone: 'amber' },
-  out: { label: 'هناك دلوقتي', tone: 'red' },
+  out: { label: 'برا دلوقتي', tone: 'red' },
   closed: { label: 'رجعنا', tone: 'gray' },
 };
 
@@ -113,6 +113,8 @@ export function waNumber(phone) {
 
 /* عزل كل جزء عشان العربي والإنجليزي ما يتلخبطوش في نفس السطر */
 export const bidi = (...parts) => parts.filter((x) => x !== null && x !== undefined && x !== '').map((x) => '\u2068' + x + '\u2069').join(' · ');
+/* ترتيب طبيعي: مفتاح 9 قبل مفتاح 10 */
+export const cmpName = new Intl.Collator('ar', { numeric: true, sensitivity: 'base' }).compare;
 export const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export const sum = (arr, f) => arr.reduce((s, x) => s + (f ? f(x) : x), 0);

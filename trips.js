@@ -1,9 +1,9 @@
 /* trips.js — الطلعات: سباق / تمرين / طلعة تانية */
-import { html, useState, Icon, Pill, Empty, Field, Chips, Stepper, Sheet, SecTitle, Hero, openSheet, toast, confirmBox, Spinner } from './ui.js';
+import { html, useState, Icon, Pill, Empty, Field, Chips, Stepper, Segmented, Sheet, SecTitle, Hero, openSheet, toast, confirmBox, Spinner } from './ui.js';
 import { call, errText } from './api.js';
 import { useStore, getStore, reload, ownerText } from './store.js';
 import * as L from './lib.js';
-import { ItemSheet, ItemPicker, OldPartFields, Thumb, run } from './items.js';
+import { ItemSheet, ItemPicker, OldPartFields, Thumb, run, groupBy, startNewItem } from './items.js';
 import { TemplatesSheet, TemplateForm } from './tools.js';
 import { ScanSheet } from './qr.js';
 import { FileReady } from './stickers.js';
@@ -14,8 +14,8 @@ const okOf = (x) => x.qty - x.damaged - x.installed - x.used - x.lost;
 
 export function tripProgress(t) {
   const n = t.items.length;
-  if (t.status === 'prep') return { done: t.items.filter((x) => x.loaded).length, n, word: 'اتحمّل' };
-  if (t.status === 'out') return { done: t.items.filter((x) => x.packed).length, n, word: 'اتلمّ' };
+  if (t.status === 'prep') return { done: t.items.filter((x) => x.loaded).length, n, word: 'طالع معانا' };
+  if (t.status === 'out') return { done: t.items.filter((x) => x.packed).length, n, word: 'اتحمّل للرجوع' };
   return { done: n, n, word: 'رجع' };
 }
 
@@ -55,7 +55,10 @@ export function TripForm({ id, close }) {
   const [name, setName] = useState(t ? t.name : '');
   const [place, setPlace] = useState(t ? t.place : '');
   const [date, setDate] = useState(t ? t.trip_date : L.todayStr());
-  const [tpl, setTpl] = useState('');
+  const guess = (kd) => { const w = kd === 'race' ? 'سباق' : kd === 'practice' ? 'تمرين' : null; const m = w && data.templates.find((x) => x.name.includes(w)); return m ? m.id : ''; };
+  const [tpl, setTpl] = useState(() => (id ? '' : guess('practice')));
+  const [tplTouched, setTplTouched] = useState(false);
+  const pickKind = (kd) => { setKind(kd); if (!tplTouched) setTpl(guess(kd)); };
   const [busy, setBusy] = useState(false);
   async function save() {
     const nm = name.trim() || `${L.TRIP_KIND[kind].label} ${L.fmtDateShort(date)}${place ? ' — ' + place : ''}`;
@@ -73,14 +76,14 @@ export function TripForm({ id, close }) {
   }
   return html`<${Sheet} title=${id ? 'تعديل الطلعة' : 'طلعة جديدة'} onClose=${close}
     footer=${html`<button class="btn bigbtn" disabled=${busy} onClick=${save}>${busy ? 'لحظة...' : id ? 'حفظ' : 'ابدأ الطلعة'}</button>`}>
-    <${Field} label="نوعها"><${Chips} items=${Object.entries(L.TRIP_KIND).map(([k, v]) => [k, v.label])} value=${kind} onChange=${setKind} /><//>
+    <${Field} label="نوعها"><${Chips} items=${Object.entries(L.TRIP_KIND).map(([k, v]) => [k, v.label])} value=${kind} onChange=${pickKind} /><//>
     <${Field} label="اسمها" hint="لو سبتها فاضية هتتسمى بالنوع والتاريخ"><input class="input" value=${name} placeholder="مثلاً: بطولة الدريفت — الجولة 3" onInput=${(e) => setName(e.target.value)} /><//>
     <div class="grid2">
       <${Field} label="المكان"><input class="input" value=${place} placeholder="مثلاً: القطامية" onInput=${(e) => setPlace(e.target.value)} /><//>
       <${Field} label="التاريخ"><input class="input" type="date" value=${date} onInput=${(e) => setDate(e.target.value)} /><//>
     </div>
-    ${!id && data.templates.length > 0 && html`<${Field} label="ابدأ بليستة جاهزة؟ (اختياري)">
-      <${Chips} items=${data.templates.map((x) => [x.id, x.name])} value=${tpl} onChange=${(v) => setTpl(tpl === v ? '' : v)} /><//>`}
+    ${!id && data.templates.length > 0 && html`<${Field} label="الليستة الجاهزة" hint="الحاجات اللي فيها هتتحط في الطلعة، وانت تعلّم على اللي طالع بس">
+      <${Chips} items=${[['', 'من غير ليستة'], ...data.templates.map((x) => [x.id, x.name + ' (' + x.items.length + ')'])]} value=${tpl} onChange=${(v) => { setTplTouched(true); setTpl(v); }} /><//>`}
   <//>`;
 }
 
@@ -93,29 +96,57 @@ function showShortages(short) {
 }
 
 /* ===================== صفحة الطلعة ===================== */
+/* تقسيم حاجات الطلعة: العدة بأقسامها / قطع كل سواق / المنتجات — بنفس ترتيب الأقسام */
+export function tripGroups(items, idx) {
+  const it = (x) => idx.items.get(x.item_id) || {};
+  const nm = (x) => it(x).name || '';
+  const g = [];
+  const tools = items.filter((x) => it(x).kind === 'tool');
+  groupBy(tools, (x) => it(x).category, idx.cats.tool, nm).forEach(([cat, xs]) => g.push([cat, xs]));
+  const byDrv = new Map();
+  items.forEach((x) => { const i = it(x); if (i.kind === 'part') { if (!byDrv.has(i.driver_id)) byDrv.set(i.driver_id, []); byDrv.get(i.driver_id).push(x); } });
+  byDrv.forEach((xs, did) => g.push(['قطع ' + ((idx.drivers.get(did) || {}).name || ''), xs.sort((a, b) => L.cmpName(nm(a), nm(b)))]));
+  const prods = items.filter((x) => it(x).kind === 'product').sort((a, b) => L.cmpName(nm(a), nm(b)));
+  if (prods.length) g.push(['منتجات', prods]);
+  return g;
+}
+
+const WORD = {
+  prep: { done: 'طالع معانا', scan: 'سكان وعلّم', scanTitle: 'طالع معانا: ', scanHint: 'امسح كل حاجة وهي بتتحط في العربية', ok: '✓ طالعة: ',
+    hint: 'علّم على كل حاجة طالعة معاكم. اللي مش متعلّم عليه مش هيطلع ومش هيظهر في الرجوع.' },
+  out: { done: 'اتحمّل في العربية', scan: 'سكان وحمّل', scanTitle: 'اتحمّل للرجوع: ', scanHint: 'امسح كل حاجة وهي بتتحمّل في العربية', ok: '✓ اتحمّلت: ',
+    hint: 'وانتو راجعين علّم على كل حاجة اتحمّلت في العربية. لو حاجة اتكسرت أو اتركبت أو خلصت، دوس على اسمها.' },
+};
+
 export function TripSheet({ id, close }) {
   const { data, idx } = useStore();
   const t = data.trips.find((x) => x.id === id) || idx.trips.get(id);
   const [ov, setOv] = useState({});        // تعليم فوري قبل ما السيرفر يرد
   const [busy, setBusy] = useState(false);
+  const [onlyLeft, setOnlyLeft] = useState(false);
   if (!t) return html`<${Sheet} title="الطلعة" onClose=${close}><${Empty} text="الطلعة دي اتمسحت" /><//>`;
   const field = t.status === 'prep' ? 'loaded' : 'packed';
+  const W = WORD[t.status] || WORD.out;
   const isOn = (x) => (ov[x.item_id] !== undefined ? ov[x.item_id] : x[field]);
   const pr = { done: t.items.filter(isOn).length, n: t.items.length };
   const k = L.TRIP_KIND[t.kind], st = L.TRIP_STATUS[t.status];
 
-  async function tick(x, v) {
-    setOv((o) => ({ ...o, [x.item_id]: v }));
-    try { await call('trip_check', { p_trip: id, p_item: x.item_id, p_field: field, p_value: v }); await reload(); }
-    catch (e) { toast(errText(e), 'bad'); }
-    setOv((o) => { const n = { ...o }; delete n[x.item_id]; return n; });
+  async function tickMany(xs, v) {
+    const ids = xs.map((x) => x.item_id);
+    setOv((o) => { const n = { ...o }; ids.forEach((i) => { n[i] = v; }); return n; });
+    try {
+      if (ids.length === 1) await call('trip_check', { p_trip: id, p_item: ids[0], p_field: field, p_value: v });
+      else await call('trip_check_many', { p_trip: id, p_items: ids, p_field: field, p_value: v });
+      await reload();
+    } catch (e) { toast(errText(e), 'bad'); }
+    setOv((o) => { const n = { ...o }; ids.forEach((i) => { delete n[i]; }); return n; });
   }
   function scan() {
     const prep = t.status === 'prep';
     openSheet(ScanSheet, {
       continuous: true,
-      title: (prep ? 'حمّل: ' : 'لمّ: ') + t.name,
-      hint: prep ? 'امسح كل حاجة وهي بتتحط في العربية' : 'امسح كل حاجة وهي بتتلم',
+      title: W.scanTitle + t.name,
+      hint: W.scanHint,
       onCode: async (code) => {
         const s = getStore();
         const item = s.idx.byCode.get(code);
@@ -130,13 +161,13 @@ export function TripSheet({ id, close }) {
             if (x[field]) return { ok: true, msg: `متعلّم عليها قبل كده: ${item.name}` };
             await call('trip_check', { p_trip: id, p_item: item.id, p_field: field, p_value: true });
             await reload();
-            return { ok: true, msg: (prep ? '✓ اتحملت: ' : '✓ اتلمّت: ') + item.name };
+            return { ok: true, msg: W.ok + item.name };
           }
           if (!prep) return { ok: false, msg: `${item.name} مش في ليستة الطلعة دي` };
           if (item.qty < 1) return { ok: false, msg: `${item.name}: مفيش منها في الجراش` };
           await call('trip_add', { p_trip: id, p_items: [{ item_id: item.id, qty: 1 }], p_loaded: true });
           await reload();
-          return { ok: true, msg: 'اتضافت للطلعة واتحملت: ' + item.name };
+          return { ok: true, msg: 'اتضافت للطلعة: ' + item.name };
         } catch (e) { return { ok: false, msg: errText(e) }; }
       },
     });
@@ -144,7 +175,7 @@ export function TripSheet({ id, close }) {
   function addItems() {
     const prep = t.status === 'prep';
     openSheet(ItemPicker, {
-      title: prep ? 'ضيف للطلعة' : 'حاجات طلعت زيادة',
+      title: prep ? 'ضيف من الجراش' : 'حاجات طلعت زيادة',
       kinds: ['tool', 'part', 'product'],
       limit: (i) => (prep ? i.qty - (idx.prepQty.get(i.id) || 0) : i.qty),
       onDone: async (sel) => {
@@ -153,32 +184,40 @@ export function TripSheet({ id, close }) {
       },
     });
   }
+  function addNew() {
+    startNewItem({
+      onCreated: async (newId, qty) => {
+        try { await call('trip_add', { p_trip: id, p_items: [{ item_id: newId, qty: qty || 1 }], p_loaded: true }); await reload(); toast('اتسجلت واتضافت للطلعة ✓'); }
+        catch (e) { toast(errText(e), 'bad'); }
+      },
+    });
+  }
   function fromTemplate() {
     openSheet(TemplatesSheet, {
       onPick: async (tp) => {
-        try { const short = await call('trip_apply_template', { p_trip: id, p_template: tp.id }); await reload(); toast('اتحطت الليستة'); if (short.length) showShortages(short); }
+        try { const short = await call('trip_apply_template', { p_trip: id, p_template: tp.id }); await reload(); toast('اتحطت ' + tp.name); if (short.length) showShortages(short); }
         catch (e) { toast(errText(e), 'bad'); }
       },
     });
   }
   async function depart() {
     const left = t.items.filter((x) => !isOn(x)).length;
-    let mode = 'all';
+    if (pr.done === 0) return toast('علّم على الحاجات اللي طالعة معاكم الأول', 'bad');
     if (left > 0) {
-      mode = await confirmBox({ title: `فيه ${left} حاجة ما اتعلّمش إنها اتحملت`, text: 'تعمل فيهم إيه؟',
-        choices: [['drop', `شيلهم من الطلعة (${left})`, 'dark'], ['all', 'اعتبرهم اتحملوا', 'ghost']] });
-      if (!mode) return;
+      const ok = await confirmBox({ title: `هيطلع ${pr.done} حاجة بس`, text: `${left} حاجة ما اتعلّمش عليها، مش هتطلع ومش هتظهر في ليستة الرجوع.`,
+        choices: [[true, `تمام، طلعنا (${pr.done})`, 'dark']], cancel: 'استنى، أرجع أعلّم' });
+      if (!ok) return;
     } else if (!(await confirmBox({ title: 'طلعنا؟', text: `${t.items.length} حاجة هتخرج من الجراش على الطلعة.`, ok: 'طلعنا' }))) return;
     setBusy(true);
-    await run(() => call('trip_depart', { p_trip: id, p_mode: mode }), 'يلا بينا 🚚 — الحاجات اتسجلت إنها برا');
-    setBusy(false);
+    await run(() => call('trip_depart', { p_trip: id, p_mode: 'drop' }), 'يلا بينا 🚚 — الحاجات اتسجلت إنها برا');
+    setBusy(false); setOnlyLeft(false);
   }
   async function finish() {
     const left = t.items.filter((x) => !isOn(x)).length;
     let mode = 'ok';
     if (left > 0) {
-      mode = await confirmBox({ title: `فيه ${left} حاجة ما اتلمّتش`, text: 'لو هي فعلاً مش معاكو، سجّلها ضايعة.',
-        choices: [['lost', `سجّلهم ضايعين (${left})`, 'danger'], ['ok', 'دول رجعوا، نسيت أعلّم', 'ghost']] });
+      mode = await confirmBox({ title: `فيه ${left} حاجة ما اتعلّمش إنها اتحمّلت`, text: 'لو مش لاقيينها، سجّلها ضايعة.',
+        choices: [['lost', `سجّلهم ضايعين (${left})`, 'danger'], ['ok', 'دول اتحمّلوا، نسيت أعلّم', 'ghost']] });
       if (!mode) return;
     } else if (!(await confirmBox({ title: 'رجعنا؟', text: 'كل الحاجات هترجع للجراش حسب اللي علّمت عليه.', ok: 'رجعنا' }))) return;
     setBusy(true);
@@ -191,50 +230,43 @@ export function TripSheet({ id, close }) {
     if (r.ok) close();
   }
 
-  /* تقسيم الحاجات: العدة / قطع كل سواق / المنتجات */
-  const groups = (() => {
-    const g = [];
-    const tools = t.items.filter((x) => (idx.items.get(x.item_id) || {}).kind === 'tool');
-    if (tools.length) g.push(['العدة', tools]);
-    const byDrv = new Map();
-    t.items.forEach((x) => { const i = idx.items.get(x.item_id); if (i && i.kind === 'part') { if (!byDrv.has(i.driver_id)) byDrv.set(i.driver_id, []); byDrv.get(i.driver_id).push(x); } });
-    byDrv.forEach((xs, did) => g.push(['قطع ' + ((idx.drivers.get(did) || {}).name || ''), xs]));
-    const prods = t.items.filter((x) => (idx.items.get(x.item_id) || {}).kind === 'product');
-    if (prods.length) g.push(['منتجات', prods]);
-    return g;
-  })();
-
   const closed = t.status === 'closed';
+  const groups = tripGroups(t.items, idx)
+    .map(([g, xs]) => [g, xs, onlyLeft && !closed ? xs.filter((x) => !isOn(x)) : xs])
+    .filter(([, , shown]) => shown.length > 0);
   const totals = closed ? {
     ok: L.sum(t.items, (x) => x.ok), damaged: L.sum(t.items, (x) => x.damaged), installed: L.sum(t.items, (x) => x.installed),
     used: L.sum(t.items, (x) => x.used), lost: L.sum(t.items, (x) => x.lost),
   } : null;
 
   return html`<${Sheet} title=${t.name} sub=${L.bidi(k.label, L.fmtDate(t.trip_date), t.place)} onClose=${close} full
-    footer=${t.status === 'prep' ? html`<button class="btn bigbtn" disabled=${busy || !t.items.length} onClick=${depart}><${Icon} name="truck" size=${24} /> طلعنا (${t.items.length} حاجة)</button>`
+    footer=${t.status === 'prep' ? html`<button class="btn bigbtn" disabled=${busy || !t.items.length} onClick=${depart}><${Icon} name="truck" size=${24} /> طلعنا (${pr.done} حاجة)</button>`
       : t.status === 'out' ? html`<button class="btn bigbtn green" disabled=${busy} onClick=${finish}><${Icon} name="home" size=${22} /> رجعنا — قفل الطلعة</button>`
         : html`<button class="btn bigbtn dark" onClick=${() => openSheet(TripReportSheet, { id })}><${Icon} name="file" size=${22} /> كشف الطلعة PDF / Excel</button>`}>
 
     <div class="tsteps">
-      ${[['prep', 'التحضير والتحميل'], ['out', 'هناك واللمّ'], ['closed', 'رجعنا']].map(([s, lb], i) => {
+      ${[['prep', 'التجهيز'], ['out', 'هناك والرجوع'], ['closed', 'رجعنا']].map(([s, lb], i) => {
         const order = { prep: 0, out: 1, closed: 2 }, cur = order[t.status];
         return html`<div class=${'tstep ' + (i < cur ? 'done' : i === cur ? 'cur' : '')}><b>${i < cur ? '✓' : i + 1}</b><span>${lb}</span></div>`;
       })}
     </div>
 
     ${!closed && html`<div class="card prog">
-      <div class="spread"><b>${t.status === 'prep' ? 'اتحمّل' : 'اتلمّ'} ${pr.done} من ${pr.n}</b><${Pill} tone=${st.tone}>${st.label}<//></div>
+      <div class="spread"><b>${W.done} ${pr.done} من ${pr.n}</b><${Pill} tone=${st.tone}>${st.label}<//></div>
       <span class="bar big"><i style=${'width:' + (pr.n ? (pr.done / pr.n) * 100 : 0) + '%'}></i></span>
-      <button class="btn bigbtn" onClick=${scan}><${Icon} name="scan" size=${24} /> ${t.status === 'prep' ? 'سكان وحمّل' : 'سكان ولمّ'}</button>
-      <div class="hint center-t">${t.status === 'prep' ? 'أو دوس على الدايرة جنب كل حاجة وهي بتتحط في العربية' : 'أو دوس على الدايرة جنب كل حاجة اتلمّت، ولو حاجة اتكسرت أو اتركبت دوس عليها'}</div>
+      <button class=${'btn ' + (t.items.some((x) => (idx.items.get(x.item_id) || {}).code) ? 'bigbtn' : 'ghost sm')} onClick=${scan}><${Icon} name="scan" size=${22} /> ${W.scan}</button>
+      <div class="hint center-t">${W.hint}</div>
     </div>`}
 
     ${t.status === 'prep' && html`<div class="grid3">
-      <button class="btn ghost sm" onClick=${addItems}><${Icon} name="plus" size=${18} /> ضيف</button>
       <button class="btn ghost sm" onClick=${fromTemplate}><${Icon} name="layers" size=${18} /> ليستة جاهزة</button>
-      <button class="btn ghost sm" disabled=${!t.items.length} onClick=${() => openSheet(TemplateForm, { preset: { name: L.TRIP_KIND[t.kind].label, items: t.items } })}><${Icon} name="save" size=${18} /> احفظها</button>
+      <button class="btn ghost sm" onClick=${addItems}><${Icon} name="plus" size=${18} /> من الجراش</button>
+      <button class="btn ghost sm" onClick=${addNew}><${Icon} name="edit" size=${18} /> حاجة جديدة</button>
     </div>`}
-    ${t.status === 'out' && html`<button class="btn ghost sm" onClick=${addItems}><${Icon} name="plus" size=${18} /> حاجة طلعت ومش في الليستة</button>`}
+    ${t.status === 'out' && html`<div class="grid2">
+      <button class="btn ghost sm" onClick=${addItems}><${Icon} name="plus" size=${18} /> طلعت زيادة</button>
+      <button class="btn ghost sm" onClick=${addNew}><${Icon} name="edit" size=${18} /> حاجة جديدة</button>
+    </div>`}
 
     ${closed && html`<div class="tsum">
       <div><b class="num">${totals.ok}</b><span>رجع سليم</span></div>
@@ -244,13 +276,24 @@ export function TripSheet({ id, close }) {
       <div class="r"><b class="num">${totals.lost}</b><span>ضاع</span></div>
     </div>`}
 
-    ${t.items.length === 0 ? html`<${Empty} icon="truck" text="الطلعة فاضية — ضيف حاجات أو اختار ليستة جاهزة أو اعمل سكان" />`
-      : groups.map(([g, xs]) => html`<div class="grp" key=${g}><div class="grp-h">${g} <i>${xs.length}</i></div>
-          <div class="card tight">${xs.map((x) => html`<${TripItemRow} key=${x.item_id} t=${t} x=${x} on=${isOn(x)} onTick=${(v) => tick(x, v)} />`)}</div></div>`)}
+    ${!closed && t.items.length > 0 && html`<${Segmented} value=${onlyLeft ? 'left' : 'all'} onChange=${(v) => setOnlyLeft(v === 'left')}
+      items=${[['all', `الكل (${pr.n})`], ['left', `لسه ما اتعلّمش (${pr.n - pr.done})`]]} />`}
+
+    ${t.items.length === 0 ? html`<${Empty} icon="truck" text="الطلعة فاضية — اختار ليستة جاهزة أو ضيف حاجات أو اعمل سكان" />`
+      : groups.length === 0 ? html`<${Empty} icon="check" text="كله متعلّم عليه ✓" />`
+      : groups.map(([g, xs, shown]) => {
+        const done = xs.filter(isOn).length, all = done === xs.length;
+        return html`<div class="grp" key=${g}>
+          <div class="grp-h">${g} <i class=${all && !closed ? 'ok' : ''}>${closed ? xs.length : done + '/' + xs.length}</i>
+            ${!closed && html`<button class="grp-act" onClick=${() => tickMany(all ? xs : xs.filter((x) => !isOn(x)), !all)}>${all ? 'شيل العلامة' : 'علّم الكل'}</button>`}
+          </div>
+          <div class="card tight">${shown.map((x) => html`<${TripItemRow} key=${x.item_id} t=${t} x=${x} on=${isOn(x)} onTick=${(v) => tickMany([x], v)} />`)}</div></div>`;
+      })}
 
     ${t.status !== 'closed' && html`<div class="row gap8 wrap">
       <button class="linkbtn" onClick=${() => openSheet(TripForm, { id })}><${Icon} name="edit" size=${15} /> تعديل البيانات</button>
-      <button class="linkbtn" onClick=${() => openSheet(TripReportSheet, { id })}><${Icon} name="file" size=${15} /> ${t.status === 'prep' ? 'اطبع ليستة التحميل' : 'كشف الطلعة'}</button>
+      <button class="linkbtn" onClick=${() => openSheet(TripReportSheet, { id })}><${Icon} name="file" size=${15} /> ${t.status === 'prep' ? 'اطبع الليستة' : 'كشف الطلعة'}</button>
+      ${t.status === 'prep' && t.items.length > 0 && html`<button class="linkbtn" onClick=${() => openSheet(TemplateForm, { preset: { name: L.TRIP_KIND[t.kind].label, items: t.items } })}><${Icon} name="save" size=${15} /> احفظها كليستة جاهزة</button>`}
       ${t.status === 'prep' && html`<button class="linkbtn danger" onClick=${delTrip}><${Icon} name="trash" size=${15} /> مسح الطلعة</button>`}
     </div>`}
   <//>`;
@@ -283,11 +326,11 @@ function TripItemRow({ t, x, on, onTick }) {
     ${!closed && html`<button class=${'tick big ' + (on ? 'on' : '')} onClick=${() => onTick(!on)} aria-label="علّم">${on && html`<${Icon} name="check" size=${20} stroke=${3} />`}</button>`}
     <button class="grow trow-main" onClick=${() => (t.status === 'out' ? openSheet(OutcomeSheet, { tripId: t.id, itemId: i.id }) : openSheet(ItemSheet, { id: i.id }))}>
       <div class="irow-title">${i.name}${i.size && html`<span class="size">${i.size}</span>`}</div>
-      <div class="irow-sub"><span class="code">${i.code}</span>${i.kind === 'part' && i.car_id && html`<span>${(idx.cars.get(i.car_id) || {}).name}</span>`}${i.kind === 'tool' && i.category && html`<span>${i.category}</span>`}</div>
+      <div class="irow-sub">${i.code && html`<span class="code">${i.code}</span>`}${i.kind === 'part' && i.car_id && html`<span>${(idx.cars.get(i.car_id) || {}).name}</span>`}${t.status === 'prep' && i.qty < x.qty && html`<span class="neg">عندنا ${i.qty} بس</span>`}</div>
       ${oc && html`<div class="irow-tags"><${Pill} tone=${x.lost || x.damaged ? 'red' : 'amber'}>${oc}<//></div>`}
       ${closed && !oc && html`<div class="irow-tags"><${Pill} tone="green">رجعت سليمة<//></div>`}
     </button>
-    ${t.status === 'prep' ? html`<${Stepper} value=${x.qty} min=${1} max=${i.qty} onChange=${setQty} />` : html`<div class="qty"><b class="num">${x.qty}</b></div>`}
+    ${t.status === 'prep' && i.qty > 1 ? html`<${Stepper} value=${x.qty} min=${1} max=${i.qty} onChange=${setQty} />` : html`<div class="qty"><b class="num">${x.qty}</b></div>`}
     ${t.status !== 'closed' && html`<button class="iconbtn light" onClick=${remove} aria-label="شيل"><${Icon} name="x" size=${18} /></button>`}
   </div>`;
 }
@@ -322,7 +365,7 @@ function OutcomeSheet({ tripId, itemId, close }) {
     } catch (e) { toast(errText(e), 'bad'); }
     setBusy(false);
   }
-  return html`<${Sheet} title=${i.name} sub=${`${i.code} · طالع ${x.qty}`} onClose=${close}
+  return html`<${Sheet} title=${i.name} sub=${L.bidi(i.code, 'طالع ' + x.qty)} onClose=${close}
     footer=${html`<button class="btn bigbtn" disabled=${busy} onClick=${save}>${busy ? 'لحظة...' : 'تمام'}</button>`}>
     ${single ? html`<${Field} label="حصل فيها إيه؟"><div class="radios">${opts.map(([k, lb]) => html`
         <button type="button" class=${'radio ' + (cur === k ? 'on' : '')} onClick=${() => pick(k)}><i></i><span><b>${lb}</b></span></button>`)}</div><//>`
@@ -345,24 +388,27 @@ export function TripReportSheet({ id, close }) {
     setBusy(true); setFile(null);
     try {
       const S = data.settings;
-      const rows = t.items.map((x, n) => {
+      const ordered = [];
+      const secOf = new Map();
+      tripGroups(t.items, idx).forEach(([g, xs]) => xs.forEach((x) => { ordered.push(x); secOf.set(x.item_id, g); }));
+      const rows = ordered.map((x, n) => {
         const i = idx.items.get(x.item_id) || {};
-        const res = t.status === 'closed' ? (outcomeText(x, i.kind) || 'رجعت سليمة') : t.status === 'out' ? (x.packed ? 'اتلمّت' + (outcomeText(x, i.kind) ? ' — ' + outcomeText(x, i.kind) : '') : 'لسه') : (x.loaded ? 'اتحملت' : '☐');
-        return { n: n + 1, code: i.code, name: i.name + (i.size ? ' (' + i.size + ')' : ''), owner: ownerText(i, idx), qty: x.qty, res };
+        const res = t.status === 'closed' ? (outcomeText(x, i.kind) || 'رجعت سليمة') : t.status === 'out' ? (x.packed ? 'اتحمّلت' + (outcomeText(x, i.kind) ? ' — ' + outcomeText(x, i.kind) : '') : 'لسه') : (x.loaded ? '✓ طالع' : '☐');
+        return { n: n + 1, code: i.code || '—', name: i.name + (i.size ? ' (' + i.size + ')' : ''), owner: i.kind === 'part' ? ownerText(i, idx) : secOf.get(x.item_id), qty: x.qty, res };
       });
       const title = `${k.label}: ${t.name}`;
       const meta = [['النوع', k.label], ['التاريخ', L.fmtDate(t.trip_date)], ['المكان', t.place || '—'], ['الحالة', L.TRIP_STATUS[t.status].label],
         ['عدد الحاجات', t.items.length + ' حاجة / ' + L.sum(t.items, (x) => x.qty) + ' قطعة'], ['اتطبع', L.nowStamp()]];
-      const resLabel = t.status === 'prep' ? 'اتحملت؟' : t.status === 'out' ? 'اتلمّت؟' : 'النتيجة';
+      const resLabel = t.status === 'prep' ? 'طالع؟' : t.status === 'out' ? 'اتحمّل للرجوع؟' : 'النتيجة';
       if (fmt === 'pdf') {
         const blob = await buildPdf({ dir: 'rtl', title, subtitle: S.company_ar, meta, footer: `${S.company_ar} — ${S.address_ar}`,
-          sections: [{ title: t.status === 'prep' ? 'ليستة التحميل' : 'كل اللي طلع', columns: [
+          sections: [{ title: t.status === 'prep' ? 'ليستة الطلعة' : 'كل اللي طلع', columns: [
             { key: 'n', label: '#', w: 0.5, align: 'center' }, { key: 'code', label: 'الكود', w: 1.3 }, { key: 'name', label: 'الحاجة', w: 3 },
-            { key: 'owner', label: 'صاحبها', w: 2.2 }, { key: 'qty', label: 'العدد', w: 0.8, align: 'center' }, { key: 'res', label: resLabel, w: 2.2 }], rows }],
-          signatures: ['المسؤول عن التحميل', 'المسؤول عن اللمّ'] });
+            { key: 'owner', label: 'القسم / صاحبها', w: 2.2 }, { key: 'qty', label: 'العدد', w: 0.8, align: 'center' }, { key: 'res', label: resLabel, w: 2.2 }], rows }],
+          signatures: ['المسؤول عن الطلوع', 'المسؤول عن الرجوع'] });
         setFile(fileFrom(blob, safeName(t.name + ' ' + t.trip_date) + '.pdf'));
       } else {
-        const blob = buildXlsx([{ name: 'الطلعة', rtl: true, title, meta, columns: [{ label: '#', w: 5 }, { label: 'الكود', w: 12 }, { label: 'الحاجة', w: 30 }, { label: 'صاحبها', w: 24 }, { label: 'العدد', w: 8 }, { label: resLabel, w: 26 }],
+        const blob = buildXlsx([{ name: 'الطلعة', rtl: true, title, meta, columns: [{ label: '#', w: 5 }, { label: 'الكود', w: 12 }, { label: 'الحاجة', w: 30 }, { label: 'القسم / صاحبها', w: 24 }, { label: 'العدد', w: 8 }, { label: resLabel, w: 26 }],
           rows: rows.map((r) => [r.n, r.code, r.name, r.owner, r.qty, r.res]) }]);
         setFile(fileFrom(blob, safeName(t.name + ' ' + t.trip_date) + '.xlsx'));
       }

@@ -76,9 +76,10 @@ insert into public.categories (kind, name, sort) values
   ('part', 'فرامل', 5), ('part', 'دراعات وتعليق', 6), ('part', 'دركسيون', 7), ('part', 'موتور', 8),
   ('part', 'تبريد', 9), ('part', 'فتيس ودفرنس', 10), ('part', 'كهربا', 11), ('part', 'بودي', 12),
   ('part', 'تانية', 99),
-  ('tool', 'عدة يدوية', 1), ('tool', 'عدة كهربا', 2), ('tool', 'جاكات وحوامل', 3), ('tool', 'كراسي', 4),
-  ('tool', 'خيام', 5), ('tool', 'ترابيزات', 6), ('tool', 'مولد وكهربا', 7), ('tool', 'بنزين وزيوت', 8),
-  ('tool', 'تانية', 99),
+  ('tool', 'ميكانيكا وصيانة', 1), ('tool', 'مفاتيح', 2), ('tool', 'لقم وإنكيهات', 3), ('tool', 'بنس وقصافات', 4),
+  ('tool', 'مفكات وشواكيش', 5), ('tool', 'قياس وتعليم', 6), ('tool', 'كهربا وبطاريات', 7), ('tool', 'لحام وحدادة', 8),
+  ('tool', 'هوا وإيثانول ومية', 9), ('tool', 'زيوت وكيماويات', 10), ('tool', 'نظافة', 11),
+  ('tool', 'مستلزمات واستهلاكات', 12), ('tool', 'تجهيزات الموقع', 13), ('tool', 'تانية', 99),
   ('product', 'تعليق', 1), ('product', 'شاسيه وتقوية', 2), ('product', 'دراعات', 3), ('product', 'تانية', 99)
 on conflict (kind, name) do nothing;
 
@@ -96,7 +97,7 @@ create table if not exists public.codes (
 
 create table if not exists public.items (
   id uuid primary key default gen_random_uuid(),
-  code text not null unique,
+  code text unique,                -- العدة من غير كود، القطع والمنتجات بكود
   kind text not null check (kind in ('part', 'tool', 'product')),
   name text not null,
   name_en text not null default '',
@@ -114,6 +115,10 @@ create table if not exists public.items (
   check ((kind = 'part') = (driver_id is not null))
 );
 create index if not exists items_driver_idx on public.items (driver_id);
+alter table public.items alter column code drop not null;
+do $$ begin
+  alter table public.items add constraint items_code_kind check (kind = 'tool' or code is not null);
+exception when duplicate_object then null; end $$;
 
 -- ---------------------------------------------------------------------
 -- 4) الطلعات (سباق / تمرين / طلعة تانية) والليستات الجاهزة
@@ -638,7 +643,7 @@ begin
 
   if p_id is null then
     if v_qty < 1 then raise exception 'bad_qty'; end if;
-    v_code := public._take_code(p->>'code');
+    v_code := case when v_kind = 'tool' then null else public._take_code(p->>'code') end;
     insert into public.items (code, kind, name, name_en, category, size, driver_id, car_id, qty, condition, location, note)
     values (v_code, v_kind, v_name, v_en, v_cat, v_size, v_driver, v_car, v_qty, v_cond, v_loc, v_note)
     returning id into v_id;
@@ -744,7 +749,7 @@ begin
   if exists (select 1 from public.shipment_items x join public.shipments s on s.id = x.shipment_id
               where x.item_id = p_item and s.status = 'draft') then raise exception 'on_shipment'; end if;
   select photo_path, code into ph, v_code from public.items where id = p_item;
-  if v_code is null then raise exception 'not_found'; end if;
+  if not found then raise exception 'not_found'; end if;
   delete from public.items where id = p_item;
   update public.codes set used = false where code = v_code;   -- الاستيكر يرجع فاضي
   if ph is not null and not exists (select 1 from public.items where photo_path = ph) then
@@ -895,6 +900,25 @@ begin
   if not found then raise exception 'not_in_trip'; end if;
 end $$;
 
+-- علّم على مجموعة حاجات مرة واحدة
+create or replace function public.trip_check_many(p_token text, p_trip uuid, p_items uuid[], p_field text, p_value boolean)
+returns int language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); st text; n int;
+begin
+  select status into st from public.trips where id = p_trip;
+  if st is null or st = 'closed' then raise exception 'trip_closed'; end if;
+  if p_field = 'loaded' then
+    update public.trip_items set loaded = coalesce(p_value, true) where trip_id = p_trip and item_id = any(p_items);
+  elsif p_field = 'packed' then
+    if st <> 'out' then raise exception 'trip_not_out'; end if;
+    update public.trip_items set packed = coalesce(p_value, true) where trip_id = p_trip and item_id = any(p_items);
+  else
+    raise exception 'bad_field';
+  end if;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
 -- حالة الحاجة في الرجوع: {damaged, installed, used, lost, old}
 create or replace function public.trip_outcome(p_token text, p_trip uuid, p_item uuid, p jsonb)
 returns void language plpgsql security definer set search_path = public, extensions as $$
@@ -983,13 +1007,13 @@ begin
         update public.items set qty = qty + x.damaged, condition = 'damaged', updated_at = now() where id = p.id;
         perform public._log(p.id, 'trip_damaged', x.damaged, x.damaged, t.name, a, p_trip);
       else
-        ncode := public._take_code(null);
+        ncode := case when p.kind = 'tool' then null else public._take_code(null) end;
         insert into public.items (code, kind, name, name_en, category, size, driver_id, car_id, qty, condition, location, note, photo_path)
         values (ncode, p.kind, p.name, p.name_en, p.category, p.size, p.driver_id, p.car_id, x.damaged, 'damaged', p.location,
-                'رجعت تالفة من ' || t.name || ' (الأصل ' || p.code || ')', p.photo_path)
+                'رجعت تالفة من ' || t.name || coalesce(' (الأصل ' || p.code || ')', ''), p.photo_path)
         returning id into nid;
-        perform public._log(nid, 'trip_damaged', x.damaged, x.damaged, t.name || ' — من ' || p.code, a, p_trip);
-        perform public._log(p.id, 'trip_damaged', 0, x.damaged, t.name || ' — اتسجلت ' || ncode, a, p_trip);
+        perform public._log(nid, 'trip_damaged', x.damaged, x.damaged, t.name || coalesce(' — من ' || p.code, ''), a, p_trip);
+        perform public._log(p.id, 'trip_damaged', 0, x.damaged, t.name || coalesce(' — اتسجلت ' || ncode, ' — التالف اتسجل لوحده'), a, p_trip);
         clones := clones + 1;
       end if;
     end if;

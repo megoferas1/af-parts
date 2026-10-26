@@ -215,7 +215,7 @@ input[type=date].input { text-align: center; }
 .qty.zero b { color: var(--faint); }
 
 .grp { display: flex; flex-direction: column; gap: 6px; }
-.grp-h { font-size: 13.5px; font-weight: 800; color: var(--mute); padding: 4px 4px 0; display: flex; align-items: center; gap: 6px; }
+.grp-h { min-height: 30px; font-size: 13.5px; font-weight: 800; color: var(--mute); padding: 4px 4px 0; display: flex; align-items: center; gap: 6px; }
 .grp-h i { font-style: normal; background: #e3e4e8; color: var(--mute); font-size: 11.5px; min-width: 22px; height: 20px; border-radius: 10px; display: grid; place-items: center; padding: 0 6px; }
 
 .lrow { display: flex; align-items: center; gap: 12px; width: 100%; padding: 13px 0; border: 0; border-bottom: 1px solid var(--line); background: none; text-align: start; color: var(--ink); }
@@ -402,3 +402,8 @@ input[type=date].input { text-align: center; }
   .sheet { border-radius: 28px; margin-bottom: 20px; }
   .sheet.full { height: 90dvh; }
 }
+
+.grp-h i.ok { background: var(--green-soft); color: var(--green); }
+.grp-act { margin-inline-start: auto; border: 0; background: var(--card); box-shadow: var(--shadow); color: var(--ink); font-weight: 800; font-size: 12.5px; min-height: 32px; padding: 0 12px; border-radius: 10px; }
+.grp-act:active { background: var(--bg); }
+.neg { color: var(--red); font-weight: 700; }

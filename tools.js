@@ -4,6 +4,7 @@ import { call, errText } from './api.js';
 import { useStore, reload, ownerText } from './store.js';
 import * as L from './lib.js';
 import { ItemRow, ItemPicker, startNewItem, groupBy, run } from './items.js';
+import { tripGroups } from './trips.js';
 import { StickerSheet, labelFor } from './stickers.js';
 import { HeroScan } from './home.js';
 
@@ -23,7 +24,6 @@ export function ToolsTab() {
         : groupBy(list, (i) => i.category, idx.cats.tool).map(([cat, its]) => html`<div class="grp" key=${cat}>
             <div class="grp-h">${cat} <i>${L.sum(its, (i) => i.qty)}</i></div>
             <div class="card tight">${its.map((i) => html`<${ItemRow} item=${i} key=${i.id} />`)}</div></div>`)}
-      ${list.length > 0 && html`<button class="btn ghost" onClick=${() => openSheet(StickerSheet, { labels: list.map((i) => labelFor(i, idx)), title: 'استيكرات العدة' })}><${Icon} name="printer" size=${20} /> اطبع استيكرات للعدة دي</button>`}
     </main>`;
 }
 
@@ -34,7 +34,7 @@ export function TemplatesSheet({ onPick, close }) {
     ${data.templates.length === 0 ? html`<${Empty} icon="layers" text="لسه مفيش ليستات جاهزة. اعمل واحدة بالحاجات اللي بتطلع معاكو كل مرة." />`
       : html`<div class="card tight">${data.templates.map((t) => html`<button class="lrow" key=${t.id} onClick=${() => { if (onPick) { close(); onPick(t); } else openSheet(TemplateForm, { id: t.id }); }}>
           <span class="mic t-dark"><${Icon} name="layers" size=${18} /></span>
-          <span class="grow"><b>${t.name}</b><small>${t.items.length} حاجة · ${L.sum(t.items, (x) => x.qty)} قطعة</small></span>
+          <span class="grow"><b>${t.name}</b><small>${t.items.length} حاجة · ${L.sum(t.items, (x) => x.qty)} قطعة${onPick ? '' : ' · دوس عشان تعدّل'}</small></span>
           <${Icon} name="chev" size=${18} /></button>`)}</div>`}
   <//>`;
 }
@@ -53,6 +53,9 @@ export function TemplateForm({ id, preset, close }) {
       onDone: (sel) => { setItems((a) => [...a, ...sel]); return true; },
     });
   }
+  function addNew() {
+    startNewItem({ kind: 'tool', onCreated: (newId, qty) => { setItems((a) => [...a, { item_id: newId, qty: qty || 1 }]); toast('اتسجلت واتضافت للّيستة — متنساش تحفظ'); } });
+  }
   async function save() {
     if (!name.trim()) return toast('اكتب اسم الليستة', 'bad');
     if (!items.length) return toast('ضيف حاجات للّيستة', 'bad');
@@ -70,15 +73,20 @@ export function TemplateForm({ id, preset, close }) {
     footer=${html`<div class="stack"><button class="btn bigbtn" disabled=${busy} onClick=${save}>${busy ? 'لحظة...' : 'حفظ الليستة'}</button>
       ${id && html`<button class="btn ghost" onClick=${del}><${Icon} name="trash" size=${18} /> مسح الليستة</button>`}</div>`}>
     <${Field} label="اسم الليستة" req><input class="input" value=${name} placeholder="مثلاً: شنطة التمرين" onInput=${(e) => setName(e.target.value)} /><//>
-    <button class="btn dark" onClick=${add}><${Icon} name="plus" size=${20} /> ضيف حاجات</button>
-    ${items.length === 0 ? html`<${Empty} icon="layers" text="الليستة فاضية" />` : html`<div class="card tight">${items.map((x) => {
-      const i = idx.items.get(x.item_id);
-      if (!i) return null;
-      return html`<div class="trow" key=${x.item_id}>
-        <div class="grow"><div class="irow-title">${i.name}${i.size && html`<span class="size">${i.size}</span>`}</div><div class="irow-sub"><span class="code">${i.code}</span><span>${ownerText(i, idx)}</span></div></div>
-        <${Stepper} value=${x.qty} min=${1} onChange=${(v) => setQty(x.item_id, v)} />
-        <button class="iconbtn light" onClick=${() => remove(x.item_id)} aria-label="شيل"><${Icon} name="x" size=${18} /></button>
-      </div>`;
-    })}</div>`}
+    <div class="grid2">
+      <button class="btn dark sm" onClick=${add}><${Icon} name="plus" size=${18} /> من الجراش</button>
+      <button class="btn ghost sm" onClick=${addNew}><${Icon} name="edit" size=${18} /> حاجة جديدة</button>
+    </div>
+    ${items.length === 0 ? html`<${Empty} icon="layers" text="الليستة فاضية" />`
+      : tripGroups(items, idx).map(([g, xs]) => html`<div class="grp" key=${g}><div class="grp-h">${g} <i>${xs.length}</i></div>
+        <div class="card tight">${xs.map((x) => {
+          const i = idx.items.get(x.item_id);
+          if (!i) return null;
+          return html`<div class="trow" key=${x.item_id}>
+            <div class="grow"><div class="irow-title">${i.name}${i.size && html`<span class="size">${i.size}</span>`}</div><div class="irow-sub">${i.code && html`<span class="code">${i.code}</span>`}${i.kind === 'part' && html`<span>${ownerText(i, idx)}</span>`}</div></div>
+            <${Stepper} value=${x.qty} min=${1} onChange=${(v) => setQty(x.item_id, v)} />
+            <button class="iconbtn light" onClick=${() => remove(x.item_id)} aria-label="شيل"><${Icon} name="x" size=${18} /></button>
+          </div>`;
+        })}</div></div>`)}
   <//>`;
 }

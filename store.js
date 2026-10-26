@@ -20,7 +20,7 @@ function byId(arr) { const m = new Map(); (arr || []).forEach((x) => m.set(x.id,
 function build(d) {
   const items = byId(d.items), drivers = byId(d.drivers), cars = byId(d.cars);
   const trips = byId(d.trips), templates = byId(d.templates), customers = byId(d.customers), shipments = byId(d.shipments);
-  const byCode = new Map(); d.items.forEach((i) => byCode.set(i.code, i));
+  const byCode = new Map(); d.items.forEach((i) => { if (i.code) byCode.set(i.code, i); });
   const carsByDriver = new Map(); d.cars.forEach((c) => { if (!carsByDriver.has(c.driver_id)) carsByDriver.set(c.driver_id, []); carsByDriver.get(c.driver_id).push(c); });
   const itemsByDriver = new Map();
   const kinds = { part: [], tool: [], product: [] };
