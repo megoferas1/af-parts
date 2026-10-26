@@ -10,23 +10,6 @@ import { ExportTab } from './export.js?v=4';
 import { TripsTab } from './trips.js?v=4';
 import { ItemSheet, startNewItem } from './items.js?v=4';
 
-/* آيفون (الابلكيشن متثبّت على الشاشة الرئيسية): ساعات iOS بيرسم الصفحة أقصر من الشاشة
-   ويسيب شريط فاضي تحت. بنقيس الفرق ونمد الطبقات اللي تحت لحد آخر الشاشة. */
-function fixBottomGap() {
-  let gap = 0;
-  try {
-    if (navigator.standalone === true) {
-      const portrait = window.innerHeight >= window.innerWidth;
-      const full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-      gap = Math.max(0, Math.min(90, Math.round(full - window.innerHeight)));
-    }
-  } catch (e) { gap = 0; }
-  document.documentElement.style.setProperty('--vgap', gap + 'px');
-}
-fixBottomGap();
-['resize', 'orientationchange', 'pageshow'].forEach((ev) => window.addEventListener(ev, () => setTimeout(fixBottomGap, 120)));
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(fixBottomGap, 120); });
-
 /* لو حصل خطأ غير متوقع نعرضه بدل شاشة بيضا */
 function showFatal(msg) {
   let el = document.getElementById('fatal');

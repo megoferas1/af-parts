@@ -25,6 +25,10 @@
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { -webkit-text-size-adjust: 100%; background: #fff; }
+/* آيفون (الابلكيشن على الشاشة الرئيسية): ساعات iOS بيرسم الصفحة أقصر من الشاشة ويسيب شريط فاضي تحت.
+   بدل ما نقيس الفرق (القياس بيغلط)، الخلفيات بس بتتمد تحت، والمحتوى والزراير بيفضلوا جوه الشاشة دايماً. */
+:root { --ext: 160px; }
+.nav::after, .sheet::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: var(--ext); background: #fff; pointer-events: none; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
   font-family: 'Tajawal', system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif;
@@ -339,7 +343,7 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 .sticker-pv i.line { display: block; height: 2px; background: #ddd; margin: 8px 0; }
 
 /* ---------- الناف السفلي ---------- */
-.nav { position: fixed; bottom: calc(-1 * var(--vgap, 0px)); left: 0; right: 0; z-index: 30; display: flex; justify-content: center; gap: 2px; padding: 6px 6px max(8px, env(safe-area-inset-bottom)); background: rgba(255, 255, 255, .95); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid var(--line); }
+.nav { position: fixed; bottom: 0; left: 0; right: 0; z-index: 30; display: flex; justify-content: center; gap: 2px; padding: 6px 6px max(8px, env(safe-area-inset-bottom)); background: rgba(255, 255, 255, .95); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid var(--line); }
 .nav button { flex: 1; max-width: 120px; display: flex; flex-direction: column; align-items: center; gap: 3px; border: 0; background: none; color: var(--faint); padding: 4px 1px; font-weight: 800; font-size: 11.5px; }
 .nav-ic { position: relative; width: 54px; height: 32px; border-radius: 16px; display: grid; place-items: center; transition: background .2s; }
 .nav button.on { color: var(--red); }
@@ -347,8 +351,8 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 .cnt { position: absolute; top: -5px; inset-inline-end: 2px; min-width: 18px; height: 18px; border-radius: 9px; background: var(--red); color: #fff; font-size: 10.5px; font-style: normal; font-weight: 800; display: grid; place-items: center; padding: 0 4px; border: 2px solid #fff; }
 
 /* ---------- Sheet ---------- */
-.sheet-back { position: fixed; inset: 0; bottom: calc(-1 * var(--vgap, 0px)); z-index: 60; background: rgba(10, 10, 12, .5); backdrop-filter: blur(2px); display: flex; align-items: flex-end; justify-content: center; animation: fade .2s; }
-.sheet { background: #fff; width: 100%; max-width: 600px; border-radius: 28px 28px 0 0; max-height: 92dvh; display: flex; flex-direction: column; animation: up .26s cubic-bezier(.2, .8, .2, 1); }
+.sheet-back { position: fixed; inset: 0; bottom: calc(-1 * var(--ext)); padding-bottom: var(--ext); z-index: 60; background: rgba(10, 10, 12, .5); backdrop-filter: blur(2px); display: flex; align-items: flex-end; justify-content: center; animation: fade .2s; }
+.sheet { position: relative; background: #fff; width: 100%; max-width: 600px; border-radius: 28px 28px 0 0; max-height: 92dvh; display: flex; flex-direction: column; animation: up .26s cubic-bezier(.2, .8, .2, 1); }
 .sheet.full { height: 94dvh; max-height: 94dvh; }
 .sheet-head { display: flex; align-items: flex-start; gap: 10px; padding: 16px 20px 10px; border-bottom: 1px solid var(--line); }
 .sheet-head::before { content: ''; position: absolute; }
@@ -365,7 +369,7 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 @keyframes drop { from { transform: translate(-50%, -16px); opacity: 0; } }
 
 /* ---------- السكان ---------- */
-.scan { position: fixed; inset: 0; bottom: calc(-1 * var(--vgap, 0px)); z-index: 90; background: #000; color: #fff; display: flex; flex-direction: column; }
+.scan { position: fixed; inset: 0; bottom: calc(-1 * var(--ext)); padding-bottom: var(--ext); z-index: 90; background: #000; color: #fff; display: flex; flex-direction: column; }
 .scan-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .scan-top { position: relative; z-index: 2; display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 12px) 16px 14px; background: linear-gradient(180deg, rgba(0, 0, 0, .75), transparent); }
 .scan-title { font-weight: 800; font-size: 17px; }
@@ -391,15 +395,15 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 .scan-manual .btn { width: auto; padding: 0 20px; }
 
 /* ---------- الدخول ---------- */
-.login { min-height: calc(100dvh + var(--vgap, 0px)); background: #000; display: flex; flex-direction: column; }
+.login { min-height: 100dvh; box-shadow: 0 var(--ext) 0 #000; background: #000; display: flex; flex-direction: column; }
 .login-cover { padding: calc(env(safe-area-inset-top) + 34px) 24px 26px; text-align: center; }
 .login-cover img { width: min(250px, 62vw); display: block; margin: 0 auto; }
 .login-card { background: var(--bg); border-radius: 30px 30px 0 0; flex: 1; padding: 22px max(20px, calc((100% - 440px) / 2)) calc(30px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 16px; }
 
 /* ---------- شاشات التحميل ---------- */
-#boot { position: fixed; inset: 0; bottom: calc(-1 * var(--vgap, 0px)); z-index: 300; background: #000; display: flex; align-items: center; justify-content: center; }
+#boot { position: fixed; inset: 0; bottom: calc(-1 * var(--ext)); padding-bottom: var(--ext); z-index: 300; background: #000; display: flex; align-items: center; justify-content: center; }
 #boot img { width: min(220px, 56vw); }
-.splash { position: fixed; inset: 0; bottom: calc(-1 * var(--vgap, 0px)); z-index: 10; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; color: #fff; padding: 24px; text-align: center; }
+.splash { position: fixed; inset: 0; bottom: calc(-1 * var(--ext)); z-index: 10; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; color: #fff; padding: 24px 24px calc(24px + var(--ext)); text-align: center; }
 .splash img { width: min(220px, 56vw); }
 .splash .spin { margin: 0; }
 .splash-act { display: flex; gap: 10px; justify-content: center; width: 100%; max-width: 420px; }
