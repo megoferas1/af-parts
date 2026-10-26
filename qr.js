@@ -1,9 +1,43 @@
 /* qr.js — رسم الـ QR وقراءته بالكاميرا */
-import { html, useState, useEffect, useRef, Icon, toast } from './ui.js';
-import { loadScript } from './api.js';
+import { html, useState, useEffect, useRef, Icon, toast } from './ui.js?v=4';
+import { loadScript } from './api.js?v=4';
 
 const QRGEN = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
-const JSQR = 'https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js';
+/* قارئ الكود: نسخة جوه الابلكيشن نفسه، ولو وقعت لأي سبب نجيبه من النت */
+const JSQR = ['./jsqr.js', 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js'];
+
+/* الكاميرا الخلفية، ولو الموبايل رفض الإعدادات نطلب أي كاميرا */
+async function openCamera() {
+  const tries = [
+    { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+    { video: { facingMode: 'environment' }, audio: false },
+    { video: true, audio: false },
+  ];
+  let err = null;
+  for (const c of tries) {
+    try { return await navigator.mediaDevices.getUserMedia(c); }
+    catch (e) {
+      err = e;
+      if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) break; // رفض الإذن: مفيش فايدة نجرب تاني
+    }
+  }
+  throw err || new Error('nocam');
+}
+
+/* قارئ الكود: BarcodeDetector لو الموبايل فيه (أسرع)، وإلا jsQR */
+async function makeReader() {
+  try {
+    if ('BarcodeDetector' in window) {
+      const f = window.BarcodeDetector.getSupportedFormats ? await window.BarcodeDetector.getSupportedFormats() : ['qr_code'];
+      if (f.includes('qr_code')) {
+        const det = new window.BarcodeDetector({ formats: ['qr_code'] });
+        return { native: det };
+      }
+    }
+  } catch (e) { /* نكمل بـ jsQR */ }
+  await loadScript(JSQR, 'jsQR');
+  return { native: null };
+}
 
 export const extractCode = (text) => {
   const m = String(text || '').toUpperCase().match(/AF-\d{3,}/);
@@ -53,7 +87,7 @@ async function decodeFile(file) {
 */
 export function ScanSheet({ title, hint, onCode, continuous, close }) {
   const videoRef = useRef(null);
-  const [state, setState] = useState('starting'); // starting | live | nocam
+  const [state, setState] = useState('starting'); // starting | live | tap | nocam | denied | nolib
   const [last, setLast] = useState(null);
   const [manual, setManual] = useState('');
   const [count, setCount] = useState(0);
@@ -81,49 +115,83 @@ export function ScanSheet({ title, hint, onCode, continuous, close }) {
     } finally { busy.current = false; }
   }
 
+  const [errName, setErrName] = useState('');
+  const [attempt, setAttempt] = useState(0);
+  const playRef = useRef(null);
+
   useEffect(() => {
-    let stream = null, timer = null, detector = null, canvas = null;
+    let stream = null, timer = null, canvas = null, reader = null, nativeFails = 0, on = true;
     alive.current = true;
+    const stop = () => { clearTimeout(timer); if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; } };
+    const fail = (st, e) => {
+      stop();
+      if (!on) return;
+      setErrName(e ? [e.name, e.message].filter(Boolean).join(': ').slice(0, 90) : '');
+      setState(st);
+    };
+    // لو الابلكيشن راح في الخلفية والكاميرا وقفت، نفتحها تاني لما يرجع
+    const onVis = () => {
+      if (document.visibilityState !== 'visible' || !stream) return;
+      const t = stream.getVideoTracks()[0];
+      if (!t || t.readyState === 'ended') setAttempt((n) => n + 1);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    setState('starting');
     (async () => {
+      // القارئ والكاميرا مع بعض
+      const readerP = makeReader().catch((e) => { throw Object.assign(new Error('nolib'), { cause: e }); });
+      readerP.catch(() => {});
       try {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('nocam');
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
-        if (!alive.current) { stream.getTracks().forEach((t) => t.stop()); return; }
-        const v = videoRef.current;
-        v.srcObject = stream; v.setAttribute('playsinline', ''); v.muted = true;
-        await v.play();
-        setState('live');
-        if ('BarcodeDetector' in window) {
-          try { detector = new window.BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { detector = null; }
-        }
-        if (!detector) { await loadScript(JSQR, 'jsQR'); canvas = document.createElement('canvas'); }
-        const tick = async () => {
-          if (!alive.current) return;
-          try {
-            if (v.readyState >= 2 && !busy.current) {
-              if (detector) {
-                const r = await detector.detect(v);
-                if (r && r[0]) await handle(r[0].rawValue);
-              } else {
-                const w = 640, h = Math.round((v.videoHeight / v.videoWidth) * w) || 480;
-                canvas.width = w; canvas.height = h;
-                const ctx = canvas.getContext('2d', { willReadFrequently: true });
-                ctx.drawImage(v, 0, 0, w, h);
-                const d = ctx.getImageData(0, 0, w, h);
-                const r = window.jsQR(d.data, w, h, { inversionAttempts: 'dontInvert' });
-                if (r && r.data) await handle(r.data);
-              }
-            }
-          } catch (e) { /* frame skipped */ }
-          timer = setTimeout(tick, 180);
-        };
-        tick();
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw Object.assign(new Error('nocam'), { name: 'NoMediaDevices' });
+        stream = await openCamera();
       } catch (e) {
-        if (alive.current) setState('nocam');
+        return fail(e && (e.name === 'NotAllowedError' || e.name === 'SecurityError') ? 'denied' : 'nocam', e);
       }
+      if (!on) return stop();
+      try { reader = await readerP; } catch (e) { return fail('nolib', e); }
+      if (!on) return stop();
+      const v = videoRef.current;
+      v.setAttribute('playsinline', ''); v.setAttribute('muted', ''); v.setAttribute('autoplay', '');
+      v.muted = true; v.playsInline = true;
+      v.srcObject = stream;
+      try { await v.play(); setState('live'); }
+      catch (e) {
+        // الآيفون أحياناً محتاج لمسة عشان يشغّل الفيديو
+        playRef.current = async () => { try { await v.play(); setState('live'); } catch (er) { fail('nocam', er); } };
+        setState('tap');
+      }
+      canvas = document.createElement('canvas');
+      const tick = async () => {
+        if (!on || !stream) return;
+        try {
+          if (v.readyState >= 2 && v.videoWidth && !busy.current) {
+            let raw = '';
+            if (reader.native) {
+              try {
+                const r = await reader.native.detect(v);
+                if (r && r[0]) raw = r[0].rawValue;
+              } catch (e) {
+                if (++nativeFails > 5) { reader = { native: null }; await loadScript(JSQR, 'jsQR'); }
+              }
+            } else {
+              const w = Math.min(640, v.videoWidth), h = Math.round((v.videoHeight / v.videoWidth) * w) || 480;
+              if (canvas.width !== w) canvas.width = w;
+              if (canvas.height !== h) canvas.height = h;
+              const ctx = canvas.getContext('2d', { willReadFrequently: true });
+              ctx.drawImage(v, 0, 0, w, h);
+              const d = ctx.getImageData(0, 0, w, h);
+              const r = window.jsQR(d.data, w, h, { inversionAttempts: 'dontInvert' });
+              if (r && r.data) raw = r.data;
+            }
+            if (raw) await handle(raw);
+          }
+        } catch (e) { /* frame skipped */ }
+        timer = setTimeout(tick, 160);
+      };
+      tick();
     })();
-    return () => { alive.current = false; clearTimeout(timer); if (stream) stream.getTracks().forEach((t) => t.stop()); };
-  }, []);
+    return () => { on = false; alive.current = false; document.removeEventListener('visibilitychange', onVis); stop(); };
+  }, [attempt]);
 
   async function fromPhoto(e) {
     const f = e.target.files && e.target.files[0];
@@ -151,10 +219,20 @@ export function ScanSheet({ title, hint, onCode, continuous, close }) {
     </div>
     ${state === 'live' && html`<div class="scan-frame"><i></i><i></i><i></i><i></i></div>`}
     ${state === 'starting' && html`<div class="scan-msg"><div class="spin light"></div><div>بفتح الكاميرا...</div></div>`}
-    ${state === 'nocam' && html`<div class="scan-msg">
-      <${Icon} name="camera" size=${40} />
-      <div>الكاميرا مش متاحة. اسمح للابلكيشن يستخدم الكاميرا من إعدادات الموبايل، أو صوّر الاستيكر.</div>
-      <label class="btn">صوّر الاستيكر<input type="file" accept="image/*" capture="environment" hidden onChange=${fromPhoto} /></label>
+    ${state === 'tap' && html`<div class="scan-msg">
+      <button class="btn" onClick=${() => playRef.current && playRef.current()}><${Icon} name="camera" size=${22} /> اضغط هنا تشغّل الكاميرا</button>
+    </div>`}
+    ${(state === 'nocam' || state === 'denied' || state === 'nolib') && html`<div class="scan-msg">
+      <${Icon} name=${state === 'nolib' ? 'alert' : 'camera'} size=${40} />
+      <div>${state === 'denied' ? 'الموبايل مش سامح للابلكيشن يستخدم الكاميرا. دوس "جرّب تاني" ولما يسألك اختار السماح. ولو مسألش، افتح إعدادات الموبايل:'
+        : state === 'nolib' ? 'مقدرتش أشغّل قارئ الكود. اتأكد إن النت شغال وجرّب تاني.'
+        : 'الكاميرا مش راضية تفتح. جرّب تاني، أو صوّر الاستيكر.'}</div>
+      ${state === 'denied' && html`<div class="scan-path" dir="ltr">Settings › Safari › Camera › Allow</div>`}
+      <div class="scan-btns">
+        <button class="btn ghost light" onClick=${() => setAttempt((n) => n + 1)}><${Icon} name="undo" size=${20} /> جرّب تاني</button>
+        <label class="btn">صوّر الاستيكر<input type="file" accept="image/*" capture="environment" hidden onChange=${fromPhoto} /></label>
+      </div>
+      ${errName && html`<div class="scan-err ltr-t">${errName}</div>`}
     </div>`}
     <div class="scan-bottom">
       ${last && html`<div class=${'scan-result ' + (last.ok ? 'ok' : 'bad')}><${Icon} name=${last.ok ? 'check' : 'alert'} size=${20} /><span>${last.msg}</span></div>`}

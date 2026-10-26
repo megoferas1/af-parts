@@ -1,15 +1,15 @@
 /* home.js — الرئيسية + السكان العام + البحث */
-import { html, useState, useEffect, useMemo, Icon, Empty, Spinner, SearchBox, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js';
-import { call, errText } from './api.js';
-import { useStore, getStore, isAdmin } from './store.js';
-import * as L from './lib.js';
-import { ItemRow, ItemSheet, startNewItem } from './items.js';
-import { ScanSheet } from './qr.js';
-import { TripCard } from './trips.js';
-import { BlankStickersSheet } from './stickers.js';
-import { LogSheet, MoveRow } from './log.js';
-import { DriverSheet } from './drivers.js';
-import { AdminSheet } from './admin.js';
+import { html, useState, useEffect, useMemo, Icon, Empty, Spinner, SearchBox, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=4';
+import { call, errText } from './api.js?v=4';
+import { useStore, getStore, isAdmin } from './store.js?v=4';
+import * as L from './lib.js?v=4';
+import { ItemRow, ItemSheet, startNewItem } from './items.js?v=4';
+import { ScanSheet } from './qr.js?v=4';
+import { TripCard } from './trips.js?v=4';
+import { BlankStickersSheet } from './stickers.js?v=4';
+import { LogSheet, MoveRow } from './log.js?v=4';
+import { DriverSheet } from './drivers.js?v=4';
+import { AdminSheet } from './admin.js?v=4';
 
 /* السكان العام: يفتح الحاجة، أو يسجّل استيكر فاضي */
 export function scanOpen() {

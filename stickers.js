@@ -1,9 +1,9 @@
 /* stickers.js — طباعة استيكرات الـ QR */
-import { html, useState, useEffect, Icon, Sheet, Chips, Spinner, toast } from './ui.js';
-import { call, errText, canShareFile, shareFile, downloadFile } from './api.js';
-import { ownerText } from './store.js';
-import { buildStickersPdf, fileFrom, PER_PAGE } from './docs.js';
-import { loadQrGen, qrDataUrl, qrText } from './qr.js';
+import { html, useState, useEffect, Icon, Sheet, Chips, Spinner, toast } from './ui.js?v=4';
+import { call, errText, canShareFile, shareFile, downloadFile } from './api.js?v=4';
+import { ownerText } from './store.js?v=4';
+import { buildStickersPdf, fileFrom, PER_PAGE } from './docs.js?v=4';
+import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=4';
 
 export function labelFor(item, idx) {
   return {

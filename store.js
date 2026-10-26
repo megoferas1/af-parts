@@ -1,7 +1,7 @@
 /* store.js — البيانات اللي في الذاكرة + فهارس سريعة */
-import { useState, useEffect } from './ui.js';
-import { call } from './api.js';
-import { norm } from './lib.js';
+import { useState, useEffect } from './ui.js?v=4';
+import { call } from './api.js?v=4';
+import { norm } from './lib.js?v=4';
 
 let S = { data: null, idx: null, loading: false, err: '' };
 const subs = new Set();

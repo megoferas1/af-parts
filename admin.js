@@ -1,9 +1,9 @@
 /* admin.js — إعدادات الإدارة: الموظفين، الأنواع، بيانات الشركة */
-import { html, useState, useEffect, Icon, Empty, Spinner, Field, Segmented, Sheet, openSheet, toast, confirmBox } from './ui.js';
-import { rpcRaw, call, errText } from './api.js';
-import { useStore, reload } from './store.js';
-import * as L from './lib.js';
-import { run } from './items.js';
+import { html, useState, useEffect, Icon, Empty, Spinner, Field, Segmented, Sheet, openSheet, toast, confirmBox } from './ui.js?v=4';
+import { rpcRaw, call, errText } from './api.js?v=4';
+import { useStore, reload } from './store.js?v=4';
+import * as L from './lib.js?v=4';
+import { run } from './items.js?v=4';
 
 export function AdminSheet({ close }) {
   const [seg, setSeg] = useState('staff');

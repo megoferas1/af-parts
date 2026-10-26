@@ -162,6 +162,9 @@ create table if not exists public.templates (
   created_at timestamptz not null default now()
 );
 
+-- الطلعة فاكرة الليستة الجاهزة اللي اتعملت منها (عشان اللي يتضاف يتحفظ فيها كمان)
+alter table public.trips add column if not exists template_id uuid references public.templates(id) on delete set null;
+
 create table if not exists public.template_items (
   template_id uuid not null references public.templates(id) on delete cascade,
   item_id uuid not null references public.items(id) on delete cascade,
@@ -178,9 +181,11 @@ create table if not exists public.customers (
   country text not null default '',
   phone text not null default '',
   email text not null default '',
+  address text not null default '',
   note text not null default '',
   created_at timestamptz not null default now()
 );
+alter table public.customers add column if not exists address text not null default '';
 
 create sequence if not exists public.ship_seq;
 
@@ -557,13 +562,14 @@ declare a jsonb := public._actor(p_token); v uuid;
 begin
   if coalesce(trim(p->>'name'), '') = '' then raise exception 'name_required'; end if;
   if p_id is null then
-    insert into public.customers (name, country, phone, email, note)
+    insert into public.customers (name, country, phone, email, address, note)
     values (trim(p->>'name'), trim(coalesce(p->>'country', '')), trim(coalesce(p->>'phone', '')),
-            trim(coalesce(p->>'email', '')), trim(coalesce(p->>'note', '')))
+            trim(coalesce(p->>'email', '')), trim(coalesce(p->>'address', '')), trim(coalesce(p->>'note', '')))
     returning id into v;
   else
     update public.customers set name = trim(p->>'name'), country = trim(coalesce(p->>'country', '')),
-           phone = trim(coalesce(p->>'phone', '')), email = trim(coalesce(p->>'email', '')), note = trim(coalesce(p->>'note', ''))
+           phone = trim(coalesce(p->>'phone', '')), email = trim(coalesce(p->>'email', '')),
+           address = trim(coalesce(p->>'address', '')), note = trim(coalesce(p->>'note', ''))
      where id = p_id returning id into v;
     if v is null then raise exception 'not_found'; end if;
   end if;
@@ -1056,12 +1062,28 @@ begin
   delete from public.templates where id = p_id;
 end $$;
 
+-- ضيف حاجات لليستة جاهزة من غير ما تمسح اللي فيها: [{item_id, qty}]
+create or replace function public.template_add_items(p_token text, p_template uuid, p_items jsonb)
+returns int language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); n int;
+begin
+  if not exists (select 1 from public.templates where id = p_template) then raise exception 'not_found'; end if;
+  insert into public.template_items (template_id, item_id, qty)
+  select p_template, (e->>'item_id')::uuid, greatest(coalesce((e->>'qty')::int, 1), 1)
+    from jsonb_array_elements(coalesce(p_items, '[]'::jsonb)) e
+   where exists (select 1 from public.items where id = (e->>'item_id')::uuid)
+  on conflict (template_id, item_id) do nothing;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
 -- حط ليستة جاهزة في طلعة (في التحضير)، وبيرجع الحاجات اللي مش كفاية
 create or replace function public.trip_apply_template(p_token text, p_trip uuid, p_template uuid)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare a jsonb := public._actor(p_token); x record; have int; can int; short jsonb := '[]'::jsonb;
 begin
   if not exists (select 1 from public.trips where id = p_trip and status = 'prep') then raise exception 'trip_not_prep'; end if;
+  update public.trips set template_id = p_template where id = p_trip;
   for x in select ti.item_id, ti.qty, i.qty as cur from public.template_items ti join public.items i on i.id = ti.item_id
             where ti.template_id = p_template loop
     select coalesce(qty, 0) into have from public.trip_items where trip_id = p_trip and item_id = x.item_id;
@@ -1100,7 +1122,7 @@ begin
   return v;
 end $$;
 
--- [{item_id, qty}] — بيضيف على الموجود
+-- [{item_id, qty}] — بيضيف على الموجود (منتجات أو قطع، العدة لأ)
 create or replace function public.shipment_add(p_token text, p_ship uuid, p_items jsonb)
 returns void language plpgsql security definer set search_path = public, extensions as $$
 declare a jsonb := public._actor(p_token); it jsonb; iid uuid; q int; cur int; k text; have int;
@@ -1111,12 +1133,49 @@ begin
     if q < 1 then raise exception 'bad_qty'; end if;
     select qty, kind into cur, k from public.items where id = iid;
     if k is null then raise exception 'not_found'; end if;
-    if k <> 'product' then raise exception 'not_product'; end if;
+    if k not in ('product', 'part') then raise exception 'bad_kind'; end if;
     select qty into have from public.shipment_items where shipment_id = p_ship and item_id = iid;
     if coalesce(have, 0) + q > cur then raise exception 'not_enough'; end if;
     insert into public.shipment_items (shipment_id, item_id, qty) values (p_ship, iid, q)
       on conflict (shipment_id, item_id) do update set qty = public.shipment_items.qty + excluded.qty;
   end loop;
+end $$;
+
+-- شحنة جديدة في خطوة واحدة: العميل (قديم أو بياناته جديدة) + الشحنة + الحاجات اللي فيها
+-- p = { customer_id | customer: {name, phone, country, address, email}, ship_date, note, items: [{item_id, qty}] }
+create or replace function public.shipment_create(p_token text, p jsonb)
+returns uuid language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); v_cust uuid := nullif(p->>'customer_id', '')::uuid; c jsonb := p->'customer'; v uuid;
+begin
+  if v_cust is not null then
+    if not exists (select 1 from public.customers where id = v_cust) then raise exception 'customer_required'; end if;
+  else
+    if c is null or jsonb_typeof(c) <> 'object' or coalesce(trim(c->>'name'), '') = '' then raise exception 'customer_required'; end if;
+    -- لو نفس الاسم ونفس التليفون متسجل قبل كده، نستخدمه ونحدّث اللي اتكتب جديد
+    select id into v_cust from public.customers
+     where lower(trim(name)) = lower(trim(c->>'name')) and phone = trim(coalesce(c->>'phone', ''))
+     order by created_at limit 1;
+    if v_cust is not null then
+      update public.customers set
+        country = coalesce(nullif(trim(coalesce(c->>'country', '')), ''), country),
+        address = coalesce(nullif(trim(coalesce(c->>'address', '')), ''), address),
+        email = coalesce(nullif(trim(coalesce(c->>'email', '')), ''), email)
+       where id = v_cust;
+    else
+      insert into public.customers (name, country, phone, email, address)
+      values (trim(c->>'name'), trim(coalesce(c->>'country', '')), trim(coalesce(c->>'phone', '')),
+              trim(coalesce(c->>'email', '')), trim(coalesce(c->>'address', '')))
+      returning id into v_cust;
+    end if;
+  end if;
+  insert into public.shipments (customer_id, ship_date, note, created_by)
+  values (v_cust, coalesce(nullif(p->>'ship_date', '')::date, (now() at time zone 'Africa/Cairo')::date),
+          trim(coalesce(p->>'note', '')), a->>'name')
+  returning id into v;
+  if jsonb_typeof(p->'items') = 'array' and jsonb_array_length(p->'items') > 0 then
+    perform public.shipment_add(p_token, v, p->'items');
+  end if;
+  return v;
 end $$;
 
 create or replace function public.shipment_set_qty(p_token text, p_ship uuid, p_item uuid, p_qty int)

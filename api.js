@@ -1,5 +1,5 @@
 /* api.js — الاتصال بـ Supabase */
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=4';
 
 if (!window.supabase) throw new Error('مكتبة Supabase ما اتحمّلتش (cdn.jsdelivr.net)');
 export const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -65,7 +65,8 @@ const MSG = {
   bad_counts: 'الأعداد أكتر من الكمية',
   shipment_done: 'الشحنة دي اتشحنت خلاص',
   shipment_empty: 'الشحنة فاضية',
-  not_product: 'الشحنات للمنتجات بس',
+  not_product: 'الشحنات للمنتجات والقطع بس',
+  bad_kind: 'الحاجة دي مينفعش تتشحن',
   bad_pin: 'الرقم السري لازم يكون من 4 لـ 8 أرقام',
   bad_ticket: 'الصورة ما اترفعتش، جرّب تاني',
   not_found: 'مش لاقيينها، يمكن اتمسحت',
@@ -130,10 +131,22 @@ export function downloadFile(file) {
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 4000);
 }
 
-/* تحميل مكتبة خارجية مرة واحدة */
+/* تحميل مكتبة خارجية مرة واحدة — src ممكن يبقى لينك أو ليستة لينكات (لو الأول وقع يجرب اللي بعده) */
 const loaded = {};
-export function loadScript(src, globalName) {
-  if (globalName && window[globalName]) return Promise.resolve(true);
+export async function loadScript(src, globalName) {
+  if (globalName && window[globalName]) return true;
+  const list = Array.isArray(src) ? src : [src];
+  let err = null;
+  for (const u of list) {
+    try {
+      await loadOne(u);
+      if (!globalName || window[globalName]) return true;
+      err = new Error('lib ' + u);
+    } catch (e) { err = e; }
+  }
+  throw err || new Error('lib');
+}
+function loadOne(src) {
   if (!loaded[src]) {
     loaded[src] = new Promise((resolve, reject) => {
       const s = document.createElement('script');

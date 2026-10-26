@@ -1,14 +1,14 @@
 /* trips.js — الطلعات: سباق / تمرين / طلعة تانية */
-import { html, useState, Icon, Pill, Empty, Field, Chips, Stepper, Segmented, Sheet, SecTitle, Hero, openSheet, toast, confirmBox, Spinner } from './ui.js';
-import { call, errText } from './api.js';
-import { useStore, getStore, reload, ownerText } from './store.js';
-import * as L from './lib.js';
-import { ItemSheet, ItemPicker, OldPartFields, Thumb, run, groupBy, startNewItem } from './items.js';
-import { TemplatesSheet, TemplateForm } from './tools.js';
-import { ScanSheet } from './qr.js';
-import { FileReady } from './stickers.js';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js';
-import { HeroScan } from './home.js';
+import { html, useState, Icon, Pill, Empty, Field, Chips, Stepper, Segmented, Sheet, SecTitle, Hero, openSheet, toast, confirmBox, Spinner } from './ui.js?v=4';
+import { call, errText } from './api.js?v=4';
+import { useStore, getStore, reload, ownerText } from './store.js?v=4';
+import * as L from './lib.js?v=4';
+import { ItemSheet, ItemPicker, OldPartFields, Thumb, run, groupBy, startNewItem } from './items.js?v=4';
+import { TemplatesSheet, TemplateForm } from './tools.js?v=4';
+import { ScanSheet } from './qr.js?v=4';
+import { FileReady } from './stickers.js?v=4';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=4';
+import { HeroScan } from './home.js?v=4';
 
 const okOf = (x) => x.qty - x.damaged - x.installed - x.used - x.lost;
 
@@ -172,6 +172,12 @@ export function TripSheet({ id, close }) {
       },
     });
   }
+  const tpl = t.template_id && data.templates.find((x) => x.id === t.template_id);
+  /* اللي يتضاف للطلعة يتحفظ في الليستة الجاهزة كمان */
+  async function keepInTemplate(sel) {
+    if (!tpl) return '';
+    try { const n = await call('template_add_items', { p_template: tpl.id, p_items: sel }); return n > 0 ? ' ولـ ' + tpl.name : ''; } catch (e) { return ''; }
+  }
   function addItems() {
     const prep = t.status === 'prep';
     openSheet(ItemPicker, {
@@ -179,7 +185,7 @@ export function TripSheet({ id, close }) {
       kinds: ['tool', 'part', 'product'],
       limit: (i) => (prep ? i.qty - (idx.prepQty.get(i.id) || 0) : i.qty),
       onDone: async (sel) => {
-        try { await call('trip_add', { p_trip: id, p_items: sel, p_loaded: !prep }); await reload(); toast('اتضافت'); return true; }
+        try { await call('trip_add', { p_trip: id, p_items: sel, p_loaded: !prep }); const also = await keepInTemplate(sel); await reload(); toast('اتضافت للطلعة' + also); return true; }
         catch (e) { toast(errText(e), 'bad'); return false; }
       },
     });
@@ -187,7 +193,7 @@ export function TripSheet({ id, close }) {
   function addNew() {
     startNewItem({
       onCreated: async (newId, qty) => {
-        try { await call('trip_add', { p_trip: id, p_items: [{ item_id: newId, qty: qty || 1 }], p_loaded: true }); await reload(); toast('اتسجلت واتضافت للطلعة ✓'); }
+        try { const sel = [{ item_id: newId, qty: qty || 1 }]; await call('trip_add', { p_trip: id, p_items: sel, p_loaded: true }); const also = await keepInTemplate(sel); await reload(); toast('اتسجلت واتضافت للطلعة' + also + ' ✓'); }
         catch (e) { toast(errText(e), 'bad'); }
       },
     });
@@ -258,13 +264,9 @@ export function TripSheet({ id, close }) {
       <div class="hint center-t">${W.hint}</div>
     </div>`}
 
-    ${t.status === 'prep' && html`<div class="grid3">
+    ${t.status === 'prep' && t.items.length === 0 && html`<div class="grid3">
       <button class="btn ghost sm" onClick=${fromTemplate}><${Icon} name="layers" size=${18} /> ليستة جاهزة</button>
       <button class="btn ghost sm" onClick=${addItems}><${Icon} name="plus" size=${18} /> من الجراش</button>
-      <button class="btn ghost sm" onClick=${addNew}><${Icon} name="edit" size=${18} /> حاجة جديدة</button>
-    </div>`}
-    ${t.status === 'out' && html`<div class="grid2">
-      <button class="btn ghost sm" onClick=${addItems}><${Icon} name="plus" size=${18} /> طلعت زيادة</button>
       <button class="btn ghost sm" onClick=${addNew}><${Icon} name="edit" size=${18} /> حاجة جديدة</button>
     </div>`}
 
@@ -290,7 +292,17 @@ export function TripSheet({ id, close }) {
           <div class="card tight">${shown.map((x) => html`<${TripItemRow} key=${x.item_id} t=${t} x=${x} on=${isOn(x)} onTick=${(v) => tickMany([x], v)} />`)}</div></div>`;
       })}
 
+    ${!closed && t.items.length > 0 && html`<div class="card addcard">
+      <div class="h3">${t.status === 'out' ? 'حاجة طلعت ومش في الليستة؟' : 'عايز تضيف حاجة؟'}</div>
+      <div class="grid2">
+        <button class="btn dark sm" onClick=${addItems}><${Icon} name="plus" size=${18} /> من الجراش</button>
+        <button class="btn ghost sm" onClick=${addNew}><${Icon} name="edit" size=${18} /> حاجة جديدة</button>
+      </div>
+      <div class="hint">${tpl ? `هتتضاف للطلعة دي ولـ "${tpl.name}" كمان، فتظهرلك المرة الجاية.` : 'هتتضاف للطلعة دي.'}</div>
+    </div>`}
+
     ${t.status !== 'closed' && html`<div class="row gap8 wrap">
+      ${t.status === 'prep' && t.items.length > 0 && html`<button class="linkbtn" onClick=${fromTemplate}><${Icon} name="layers" size=${15} /> ضيف ليستة جاهزة تانية</button>`}
       <button class="linkbtn" onClick=${() => openSheet(TripForm, { id })}><${Icon} name="edit" size=${15} /> تعديل البيانات</button>
       <button class="linkbtn" onClick=${() => openSheet(TripReportSheet, { id })}><${Icon} name="file" size=${15} /> ${t.status === 'prep' ? 'اطبع الليستة' : 'كشف الطلعة'}</button>
       ${t.status === 'prep' && t.items.length > 0 && html`<button class="linkbtn" onClick=${() => openSheet(TemplateForm, { preset: { name: L.TRIP_KIND[t.kind].label, items: t.items } })}><${Icon} name="save" size=${15} /> احفظها كليستة جاهزة</button>`}

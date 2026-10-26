@@ -1,12 +1,13 @@
 /* items.js — الحاجة نفسها: صفحتها، تسجيلها، دخول/خروج/جرد/تركيب، واختيار حاجات */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, toast, confirmBox } from './ui.js';
-import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js';
-import { useStore, getStore, reload, ownerText, isAdmin } from './store.js';
-import * as L from './lib.js';
-import { DriverForm, CarForm, DriverSheet } from './drivers.js';
-import { StickerSheet, labelFor } from './stickers.js';
-import { ScanSheet } from './qr.js';
-import { MoveRow } from './log.js';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, toast, confirmBox } from './ui.js?v=4';
+import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=4';
+import { useStore, getStore, reload, ownerText, isAdmin } from './store.js?v=4';
+import * as L from './lib.js?v=4';
+import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=4';
+import { StickerSheet, labelFor } from './stickers.js?v=4';
+import { ScanSheet } from './qr.js?v=4';
+import { MoveRow } from './log.js?v=4';
+import { ShipmentForm } from './export.js?v=4';
 
 /* تنفيذ عملية + تحديث + رسالة */
 export async function run(fn, okMsg) {
@@ -135,7 +136,7 @@ export function ItemSheet({ id, close }) {
 
     <div class="acts">
       <${Act} icon="in" label=${L.IN_LABEL[K]} tone="green" onClick=${() => openSheet(MoveForm, { id, type: 'in' })} />
-      <${Act} icon="out" label="خروج" tone="red" disabled=${item.qty < 1} onClick=${() => openSheet(MoveForm, { id, type: 'out' })} />
+      <${Act} icon="out" label="خروج" tone="red" disabled=${item.qty < 1} onClick=${() => openSheet(K === 'tool' ? MoveForm : OutChooser, { id, type: 'out' })} />
       ${K === 'part' && html`<${Act} icon="wrench" label="تركيب" tone="dark" disabled=${item.qty < 1} onClick=${() => openSheet(InstallForm, { id })} />`}
       <${Act} icon="list" label="جرد" onClick=${() => openSheet(MoveForm, { id, type: 'adjust' })} />
       <${Act} icon="edit" label="تعديل" onClick=${() => openSheet(ItemForm, { id })} />
@@ -287,17 +288,43 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
   <//>`;
 }
 
-/* ---------- دخول / خروج / جرد ---------- */
-export function MoveForm({ id, type, close }) {
+/* ---------- خرجت إزاي؟ (القطع والمنتجات) ---------- */
+export function OutChooser({ id, close }) {
   const { idx } = useStore();
   const item = idx.items.get(id);
-  const [qty, setQty] = useState(type === 'adjust' ? (item ? item.qty : 0) : 1);
-  const [reason, setReason] = useState('');
+  if (!item) return null;
+  const K = item.kind;
+  const driver = item.driver_id && idx.drivers.get(item.driver_id);
+  const go = (Comp, props) => { close(); openSheet(Comp, props); };
+  const opts = K === 'part' ? [
+    ['install', 'wrench', 'تركيب', 'اتركبت على عربية السواق، وتسجّل القديمة اللي طلعت', () => go(InstallForm, { id })],
+    ['ship', 'globe', 'شحن', 'هتتشحن لصاحبها أو لحد تاني، وبتتسجل في الشحنات', () => go(ShipmentForm, { itemId: id })],
+    ['owner', 'user', 'صاحبها خدها', driver ? driver.name + ' خدها من الجراش' : 'السواق خدها من الجراش', () => go(MoveForm, { id, type: 'out', preset: 'صاحبها خدها' })],
+  ] : [
+    ['ship', 'globe', 'شحن لعميل', 'بتتسجل في الشحنات وتطلعلها Packing List', () => go(ShipmentForm, { itemId: id })],
+  ];
+  return html`<${Sheet} title="خرجت إزاي؟" sub=${L.bidi(item.name, item.size, item.code)} onClose=${close}>
+    <div class="kinds">
+      ${opts.map(([k, ic, lb, sub, fn]) => html`<button class=${'kindbtn out-' + k} key=${k} onClick=${fn}>
+        <span class="kindbtn-ic"><${Icon} name=${ic} size=${28} /></span>
+        <span><b>${lb}</b><small>${sub}</small></span>
+      </button>`)}
+    </div>
+    <button type="button" class="linkbtn center" onClick=${() => go(MoveForm, { id, type: 'out' })}>سبب تاني؟</button>
+  <//>`;
+}
+
+/* ---------- دخول / خروج / جرد ---------- */
+export function MoveForm({ id, type, preset, close }) {
+  const { idx } = useStore();
+  const item = idx.items.get(id);
+  const [qty, setQty] = useState(type === 'adjust' ? (item ? item.qty : 0) : type === 'out' && preset && item ? item.qty : 1);
+  const [reason, setReason] = useState(preset || '');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   if (!item) return null;
   const K = item.kind;
-  const title = type === 'in' ? L.IN_LABEL[K] : type === 'out' ? 'خروج من الجراش' : 'جرد';
+  const title = preset || (type === 'in' ? L.IN_LABEL[K] : type === 'out' ? 'خروج من الجراش' : 'جرد');
   async function save() {
     if (type === 'out' && !reason) return toast('اختار السبب', 'bad');
     setBusy(true);
@@ -306,12 +333,13 @@ export function MoveForm({ id, type, close }) {
     setBusy(false);
     if (r.ok) close();
   }
-  return html`<${Sheet} title=${title} sub=${L.bidi(item.name, item.code)} onClose=${close}
+  const oneOnly = type === 'out' && item.qty === 1;
+  return html`<${Sheet} title=${title} sub=${L.bidi(item.name, item.size, item.code)} onClose=${close}
     footer=${html`<button class=${'btn bigbtn ' + (type === 'out' ? '' : type === 'in' ? 'green' : 'dark')} disabled=${busy} onClick=${save}>${busy ? 'لحظة...' : 'تسجيل'}</button>`}>
     <div class="note info"><${Icon} name="info" size=${18} /><span>عندنا دلوقتي: <b class="num">${item.qty}</b></span></div>
-    <${Field} label=${type === 'adjust' ? 'العدد الحقيقي اللي في الجراش' : type === 'in' ? 'كام واحدة دخلت؟' : 'كام واحدة خرجت؟'}>
-      <${Stepper} value=${qty} min=${type === 'adjust' ? 0 : 1} max=${type === 'out' ? item.qty : 99999} onChange=${setQty} big /><//>
-    ${type === 'out' && html`<${Field} label="خرجت ليه؟" req><${Chips} items=${L.OUT_REASONS[K]} value=${reason} onChange=${setReason} /><//>`}
+    ${!oneOnly && html`<${Field} label=${type === 'adjust' ? 'العدد الحقيقي اللي في الجراش' : type === 'in' ? 'كام واحدة دخلت؟' : 'كام واحدة خرجت؟'}>
+      <${Stepper} value=${qty} min=${type === 'adjust' ? 0 : 1} max=${type === 'out' ? item.qty : 99999} onChange=${setQty} big /><//>`}
+    ${type === 'out' && !preset && html`<${Field} label="خرجت ليه؟" req><${Chips} items=${L.OUT_REASONS[K]} value=${reason} onChange=${setReason} /><//>`}
     <${Field} label="ملاحظة (اختياري)"><input class="input" value=${note} onInput=${(e) => setNote(e.target.value)} placeholder=${type === 'in' ? 'مثلاً: جت مع العربية' : ''} /><//>
   <//>`;
 }

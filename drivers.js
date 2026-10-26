@@ -1,12 +1,12 @@
 /* drivers.js — السواقين وعربياتهم وقطعهم */
-import { html, useState, useMemo, Icon, Empty, Spinner, Field, Chips, SearchBox, Act, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js';
-import { call, errText } from './api.js';
-import { useStore, reload } from './store.js';
-import * as L from './lib.js';
-import { ItemRow, ItemSheet, startNewItem, run, groupBy } from './items.js';
-import { StickerSheet, labelFor, FileReady } from './stickers.js';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js';
-import { HeroScan } from './home.js';
+import { html, useState, useMemo, Icon, Empty, Spinner, Field, Chips, SearchBox, Act, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=4';
+import { call, errText } from './api.js?v=4';
+import { useStore, reload } from './store.js?v=4';
+import * as L from './lib.js?v=4';
+import { ItemRow, ItemSheet, startNewItem, run, groupBy } from './items.js?v=4';
+import { StickerSheet, labelFor, FileReady } from './stickers.js?v=4';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=4';
+import { HeroScan } from './home.js?v=4';
 
 export function DriversTab() {
   const { data, idx } = useStore();
