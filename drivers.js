@@ -1,45 +1,68 @@
 /* drivers.js — السواقين وعربياتهم وقطعهم */
-import { html, useState, useMemo, Icon, Empty, Spinner, Field, Chips, SearchBox, Act, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=8';
-import { call, errText } from './api.js?v=8';
-import { useStore, reload } from './store.js?v=8';
-import * as L from './lib.js?v=8';
-import { ItemRow, ItemSheet, startNewItem, run, groupBy } from './items.js?v=8';
-import { StickerSheet, labelsByQty, FileReady } from './stickers.js?v=8';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=8';
-import { HeroScan } from './home.js?v=8';
-import { JobCard, JobForm, CarJobsSheet, isOpenJob } from './jobs.js?v=8';
+import { html, useState, useMemo, Icon, Empty, Spinner, Field, Chips, SearchBox, Act, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=9';
+import { call, errText } from './api.js?v=9';
+import { useStore, reload } from './store.js?v=9';
+import * as L from './lib.js?v=9';
+import { ItemRow, ItemSheet, startNewItem, run, groupBy } from './items.js?v=9';
+import { StickerSheet, labelsByQty, FileReady } from './stickers.js?v=9';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=9';
+import { HeroScan } from './home.js?v=9';
+import { JobCard, JobForm, CarJobsSheet, isOpenJob } from './jobs.js?v=9';
 
 export function DriversTab() {
   const { data, idx } = useStore();
-  const [q, setQ] = useState('');
-  const list = useMemo(() => data.drivers.filter((d) => {
-    if (!q) return true;
-    const cars = (idx.carsByDriver.get(d.id) || []).map((c) => c.name).join(' ');
-    return L.matches(d.name + ' ' + d.phone + ' ' + cars, q);
-  }), [data, q]);
   const parts = idx.kinds.part;
   return html`
     <${Hero} title="السواقين وقطعهم" sub=${`${data.drivers.length} سواق · ${L.sum(parts, (p) => p.qty)} قطعة عندنا`} right=${html`<${HeroScan} />`} />
     <main class="body">
-      <${SearchBox} value=${q} onChange=${setQ} placeholder="دوّر على سواق أو عربية" />
       <button class="btn" onClick=${() => openSheet(DriverForm, { onSaved: (id) => openSheet(DriverSheet, { id }) })}><${Icon} name="plus" size=${22} /> سواق جديد</button>
       <button class="dcard garage" onClick=${() => openSheet(GaragePartsSheet)}>
         <span class="avatar"><${Icon} name="home" size=${22} /></span>
         <span class="grow"><b>قطع الجراش</b><small>قطع ملك الجراش، مش لسواق</small></span>
         <span class="qty"><b class="num">${L.sum(idx.garageParts, (i) => i.qty)}</b><span>قطعة</span></span>
       </button>
-      ${list.length === 0 ? html`<${Empty} icon="users" text=${q ? 'مفيش سواق بالاسم ده' : 'لسه مفيش سواقين — ضيف أول سواق'} />`
-        : html`<div class="dgrid">${list.map((d) => {
-          const its = idx.itemsByDriver.get(d.id) || [];
-          const have = L.sum(its, (i) => i.qty);
-          const cars = idx.carsByDriver.get(d.id) || [];
-          return html`<button class="dcard" key=${d.id} onClick=${() => openSheet(DriverSheet, { id: d.id })}>
-            <span class="avatar">${d.name.trim().charAt(0)}</span>
-            <span class="grow"><b>${d.name}</b><small>${cars.length ? cars.map((c) => c.name).join('، ') : 'من غير عربيات'}</small></span>
-            <span class="qty"><b class="num">${have}</b><span>قطعة</span></span>
-          </button>`;
-        })}</div>`}
+      <${DriverList} />
     </main>`;
+}
+
+/* قطع السواقين: صفحة لوحدها من الرئيسية — السواقين اللي ليهم قطع عندنا الأول */
+export function DriverPartsSheet({ close }) {
+  const { idx } = useStore();
+  const drv = idx.kinds.part.filter((i) => i.driver_id);
+  return html`<${Sheet} title="قطع السواقين" sub=${`${L.sum(drv, (i) => i.qty)} قطعة عندنا`} onClose=${close} full>
+    <div class="grid2">
+      <button class="btn sm" onClick=${() => startNewItem({ kind: 'part' })}><${Icon} name="plus" size=${18} /> قطعة جديدة</button>
+      <button class="btn ghost sm" onClick=${() => openSheet(DriverForm, { onSaved: (id) => openSheet(DriverSheet, { id }) })}><${Icon} name="user" size=${18} /> سواق جديد</button>
+    </div>
+    <${DriverList} sorted />
+  <//>`;
+}
+
+/* ليستة السواقين بعدد قطعهم — بتدوّر بالاسم أو التليفون أو العربية أو اسم/كود القطعة */
+function DriverList({ sorted }) {
+  const { data, idx } = useStore();
+  const [q, setQ] = useState('');
+  const have = (d) => L.sum(idx.itemsByDriver.get(d.id) || [], (i) => i.qty);
+  const list = useMemo(() => {
+    const xs = data.drivers.filter((d) => {
+      if (!q) return true;
+      const cars = (idx.carsByDriver.get(d.id) || []).map((c) => c.name).join(' ');
+      return L.matches(d.name + ' ' + d.phone + ' ' + cars, q) || (idx.itemsByDriver.get(d.id) || []).some((i) => L.matches(idx.hay.get(i.id), q));
+    });
+    return sorted ? xs.slice().sort((a, b) => have(b) - have(a)) : xs;
+  }, [data, q, sorted]);
+  return html`
+    <${SearchBox} value=${q} onChange=${setQ} placeholder="دوّر على سواق، عربية، أو قطعة" />
+    ${list.length === 0 ? html`<${Empty} icon="users" text=${q ? 'مفيش حاجة كده' : 'لسه مفيش سواقين — ضيف أول سواق'} />`
+      : html`<div class="dgrid">${list.map((d) => {
+        const n = have(d);
+        const cars = idx.carsByDriver.get(d.id) || [];
+        return html`<button class=${'dcard' + (sorted && !n ? ' faded' : '')} key=${d.id} onClick=${() => openSheet(DriverSheet, { id: d.id })}>
+          <span class="avatar">${d.name.trim().charAt(0)}</span>
+          <span class="grow"><b>${d.name}</b><small>${cars.length ? cars.map((c) => c.name).join('، ') : 'من غير عربيات'}</small></span>
+          <span class="qty"><b class="num">${n}</b><span>قطعة</span></span>
+        </button>`;
+      })}</div>`}`;
 }
 
 /* قطع ملك الجراش (من غير سواق) */

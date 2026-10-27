@@ -1,6 +1,6 @@
 /* qr.js — رسم الـ QR وقراءته بالكاميرا */
-import { html, useState, useEffect, useRef, Icon, toast } from './ui.js?v=8';
-import { loadScript } from './api.js?v=8';
+import { html, useState, useEffect, useRef, Icon, toast } from './ui.js?v=9';
+import { loadScript } from './api.js?v=9';
 
 const QRGEN = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
 /* قارئ الكود: نسخة جوه الابلكيشن نفسه، ولو وقعت لأي سبب نجيبه من النت */

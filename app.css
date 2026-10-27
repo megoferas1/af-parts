@@ -570,3 +570,16 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 .acts.small .act { min-height: 64px; padding: 6px 2px; border-radius: 14px; font-size: 12px; gap: 4px; }
 .acts.small .act-ic { width: 32px; height: 32px; border-radius: 10px; }
 .acts.small .act-ic .ic { width: 18px; height: 18px; }
+
+/* زرارين القطع في الرئيسية */
+.partbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pcard { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 16px; min-height: 132px; border: 0; border-radius: 22px; background: #fff; color: var(--ink); box-shadow: var(--shadow); text-align: start; }
+.pcard > b { font-size: 17.5px; font-weight: 800; margin-top: auto; }
+.pcard small { color: var(--mute); font-size: 13px; font-weight: 600; }
+.pcard small .num { font-size: 15px; color: var(--ink); }
+.pcard-ic { width: 48px; height: 48px; border-radius: 16px; display: grid; place-items: center; background: var(--red-soft); color: var(--red); }
+.pcard.dark { background: var(--ink); color: #fff; }
+.pcard.dark small, .pcard.dark small .num { color: rgba(255, 255, 255, .75); }
+.pcard.dark .pcard-ic { background: rgba(255, 255, 255, .14); color: #fff; }
+.pcard:active { transform: scale(.98); }
+.dcard.faded { opacity: .55; }
