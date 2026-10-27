@@ -1,7 +1,7 @@
 /* store.js — البيانات اللي في الذاكرة + فهارس سريعة */
-import { useState, useEffect } from './ui.js?v=7';
-import { call } from './api.js?v=7';
-import { norm } from './lib.js?v=7';
+import { useState, useEffect } from './ui.js?v=8';
+import { call } from './api.js?v=8';
+import { norm } from './lib.js?v=8';
 
 let S = { data: null, idx: null, loading: false, err: '' };
 const subs = new Set();
@@ -42,6 +42,10 @@ function build(d) {
   });
   const shipQty = new Map();
   d.shipments.forEach((s) => { if (s.status === 'draft') s.items.forEach((x) => shipQty.set(x.item_id, (shipQty.get(x.item_id) || 0) + x.qty)); });
+  /* قطع التصدير اللي في المخزن، كل واحدة بكودها، وأنهي شحنة بتتجهز واخداها */
+  const unitsByItem = new Map(), unitByCode = new Map(), unitShip = new Map();
+  d.units.forEach((u) => { if (!unitsByItem.has(u.item_id)) unitsByItem.set(u.item_id, []); unitsByItem.get(u.item_id).push(u); unitByCode.set(u.code, u); });
+  d.shipments.forEach((s) => { if (s.status === 'draft') (s.units || []).forEach((u) => unitShip.set(u.id, s)); });
   const cats = { part: [], tool: [], product: [] };
   const abbr = new Map();
   d.categories.forEach((c) => { if (cats[c.kind]) cats[c.kind].push(c.name); if (c.abbr) abbr.set(c.kind + ':' + c.name, c.abbr); });
@@ -57,7 +61,7 @@ function build(d) {
     const car = i.car_id && cars.get(i.car_id);
     hay.set(i.id, norm([i.code, i.part_no, i.name, i.name_en, i.category, i.size, i.location, i.note, dr && dr.name, car && car.name, i.kind === 'part' && !i.driver_id ? 'الجراش' : ''].join(' ')));
   });
-  return { items, drivers, cars, trips, templates, customers, shipments, byCode, carsByDriver, itemsByDriver, kinds, outQty, prepQty, outTrips, shipQty, cats, abbr, locations, hay, priceItems, invoices, garageParts, jobs, jobsByCar };
+  return { items, drivers, cars, trips, templates, customers, shipments, byCode, carsByDriver, itemsByDriver, kinds, outQty, prepQty, outTrips, shipQty, cats, abbr, locations, hay, priceItems, invoices, garageParts, jobs, jobsByCar, unitsByItem, unitByCode, unitShip };
 }
 
 let pending = null;
@@ -68,7 +72,7 @@ export async function reload() {
     try {
       const d = await call('bootstrap');
       /* لو قاعدة البيانات لسه ما اتحدثتش، الأجزاء الجديدة بتبقى فاضية بدل ما الابلكيشن يقع */
-      ['jobs', 'staff', 'price_items', 'invoices'].forEach((k) => { if (!Array.isArray(d[k])) d[k] = []; });
+      ['jobs', 'staff', 'price_items', 'invoices', 'units'].forEach((k) => { if (!Array.isArray(d[k])) d[k] = []; });
       S = { data: d, idx: build(d), loading: false, err: '' };
     } catch (e) {
       S = { ...S, loading: false, err: e && e.message ? e.message : String(e) };

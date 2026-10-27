@@ -1,12 +1,12 @@
 /* invoices.js — الأسعار والفواتير (للإدارة واللي الإدارة اديته الصلاحية) */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=7';
-import { call, errText } from './api.js?v=7';
-import { useStore, getStore, reload, isAdmin } from './store.js?v=7';
-import * as L from './lib.js?v=7';
-import { startNewItem, groupBy, run } from './items.js?v=7';
-import { FileReady } from './stickers.js?v=7';
-import { buildInvoicePdf, fmtMoney, fmtQty, invoiceTotals, fileFrom, safeName } from './docs.js?v=7';
-import { HeroScan } from './home.js?v=7';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=8';
+import { call, errText } from './api.js?v=8';
+import { useStore, getStore, reload, isAdmin } from './store.js?v=8';
+import * as L from './lib.js?v=8';
+import { startNewItem, groupBy, run } from './items.js?v=8';
+import { FileReady } from './stickers.js?v=8';
+import { buildInvoicePdf, fmtMoney, fmtQty, invoiceTotals, fileFrom, safeName } from './docs.js?v=8';
+import { HeroScan } from './home.js?v=8';
 
 export const PKIND = { labor: { label: 'مصنعيات', one: 'مصنعية', icon: 'wrench' }, material: { label: 'قطع وخامات', one: 'قطعة / خامة', icon: 'box' } };
 const CURS = [['EGP', 'جنيه'], ['USD', 'دولار']];
@@ -41,7 +41,7 @@ export function conv(v, from, to, rate) {
 }
 
 /* =================================================================== تاب الفواتير */
-export function InvoicesTab() {
+export function InvoicesTab({ back }) {
   const { data } = useStore();
   const [seg, setSeg] = useState('invoices');
   const [q, setQ] = useState('');
@@ -49,7 +49,7 @@ export function InvoicesTab() {
   const unpaid = data.invoices.filter((v) => !v.paid);
   const list = data.invoices.filter((v) => (only === 'all' || !v.paid) && (!q || L.matches([v.ref, v.bill && v.bill.name, v.bill && v.bill.phone].join(' '), q)));
   return html`
-    <${Hero} title="الفواتير" sub=${`${data.invoices.length} فاتورة · ${unpaid.length} لسه ما اتدفعتش`} right=${html`<${HeroScan} />`} />
+    <${Hero} back=${back} title="الفواتير" sub=${`${data.invoices.length} فاتورة · ${unpaid.length} لسه ما اتدفعتش`} right=${html`<${HeroScan} />`} />
     <main class="body">
       <${Segmented} value=${seg} onChange=${setSeg} items=${[['invoices', 'الفواتير', unpaid.length], ['prices', 'الأسعار']]} />
       ${seg === 'invoices' ? html`

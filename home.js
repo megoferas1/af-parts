@@ -1,16 +1,17 @@
 /* home.js — الرئيسية + السكان العام + البحث */
-import { html, useState, useEffect, useMemo, Icon, Empty, Spinner, SearchBox, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=7';
-import { call, errText } from './api.js?v=7';
-import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=7';
-import * as L from './lib.js?v=7';
-import { ItemRow, ItemSheet, startNewItem } from './items.js?v=7';
-import { ScanSheet } from './qr.js?v=7';
-import { TripCard } from './trips.js?v=7';
-import { BlankStickersSheet } from './stickers.js?v=7';
-import { LogSheet, MoveRow } from './log.js?v=7';
-import { DriverSheet } from './drivers.js?v=7';
-import { AdminSheet } from './admin.js?v=7';
-import { isOpenJob, isLate } from './jobs.js?v=7';
+import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Segmented, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=8';
+import { call, errText } from './api.js?v=8';
+import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=8';
+import * as L from './lib.js?v=8';
+import { ItemRow, ItemSheet, startNewItem } from './items.js?v=8';
+import { ScanSheet } from './qr.js?v=8';
+import { UnitSheet } from './units.js?v=8';
+import { TripCard } from './trips.js?v=8';
+import { DriverSheet, GaragePartsSheet } from './drivers.js?v=8';
+import { BlankStickersSheet } from './stickers.js?v=8';
+import { LogSheet } from './log.js?v=8';
+import { AdminSheet } from './admin.js?v=8';
+import { isOpenJob, isLate } from './jobs.js?v=8';
 
 /* السكان العام: يفتح الحاجة، أو يسجّل استيكر فاضي */
 export function scanOpen() {
@@ -24,6 +25,7 @@ export function scanOpen() {
       try {
         const r = await call('code_info', { p_code: code });
         if (r.status === 'item') { setTimeout(() => openSheet(ItemSheet, { id: r.item_id }), 60); return { ok: true, msg: code }; }
+        if (r.status === 'unit') { setTimeout(() => openSheet(UnitSheet, { code: r.code, itemId: r.item_id }), 60); return { ok: true, msg: code }; }
         if (r.status === 'blank') { setTimeout(() => startNewItem({ code, scanNext: scanOpen }), 60); return { ok: true, msg: 'استيكر فاضي — سجّله' }; }
         return { ok: false, msg: 'الكود ده مش من استيكراتنا' };
       } catch (e) { return { ok: false, msg: errText(e) }; }
@@ -33,9 +35,11 @@ export function scanOpen() {
 
 export const HeroScan = () => html`<button class="iconbtn scanbtn" onClick=${scanOpen} aria-label="سكان"><${Icon} name="scan" size=${22} /></button>`;
 
+/* الرئيسية: كل حاجة ظاهرة ومتقسمة — سكان، العربيات، القطع اللي عندنا، والأقسام التانية */
 export function HomeTab({ onGo, onLogout }) {
   const { data, idx } = useStore();
   const [q, setQ] = useState('');
+  const [seg, setSeg] = useState('drivers');
 
   const results = useMemo(() => {
     if (!q.trim()) return null;
@@ -45,23 +49,27 @@ export function HomeTab({ onGo, onLogout }) {
   }, [q, data]);
 
   const active = data.trips.filter((t) => t.status !== 'closed');
-  const sumQ = (arr) => L.sum(arr, (i) => i.qty);
-  const tiles = [
-    ['drivers', 'car', 'السواقين وقطعهم', `${data.drivers.length} سواق · ${sumQ(idx.kinds.part)} قطعة`, 'red'],
-    ['tools', 'wrench', 'العدة', `${idx.kinds.tool.length} حاجة`, 'dark'],
-    ['export', 'globe', 'التصدير', `${sumQ(idx.kinds.product)} قطعة متخزنة`, 'gray'],
-    ['trips', 'flag', 'الطلعات', active.length ? `${active.length} شغالة دلوقتي` : 'سباقات وتمرينات', 'amber'],
-    ...(canInvoice() ? [['invoices', 'file', 'الفواتير والأسعار', `${data.invoices.filter((v) => !v.paid).length} لسه ما اتدفعتش`, 'green']] : []),
-  ];
   const me = data.me;
   const jobs = data.jobs.filter(isOpenJob);
   const jReady = jobs.filter((j) => j.status === 'ready').length, jLate = jobs.filter(isLate).length;
+  /* القطع اللي في الجراش دلوقتي: بتاعة السواقين / بتاعة الجراش — آخر اللي اتحرك الأول */
+  const recent = (arr) => arr.filter((i) => i.qty > 0).sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+  const drvParts = recent(idx.kinds.part.filter((i) => i.driver_id));
+  const garParts = recent(idx.garageParts);
+  const shown = seg === 'drivers' ? drvParts : garParts;
+  const sumQ = (arr) => L.sum(arr, (i) => i.qty);
+  const tiles = [
+    ['tools', 'wrench', 'العدة', `${idx.kinds.tool.length} حاجة · ليستات السباق`, 'dark', () => onGo('tools')],
+    ...(canInvoice() ? [['invoices', 'file', 'الفواتير والأسعار', `${data.invoices.filter((v) => !v.paid).length} لسه ما اتدفعتش`, 'green', () => onGo('invoices')]] : []),
+    ['blank', 'qr', 'استيكرات فاضية', 'اطبع ورق وسيبه جنبك', 'gray', () => openSheet(BlankStickersSheet)],
+    ['log', 'history', 'السجل', 'كل حركة بالاسم والوقت', 'amber', () => openSheet(LogSheet)],
+  ];
   return html`
     <${Hero} title=${'أهلاً، ' + (me.kind === 'admin' ? 'الإدارة' : me.name)} sub=${L.fmtDate(L.todayStr())}
       right=${html`${isAdmin() && html`<button class="iconbtn" onClick=${() => openSheet(AdminSheet)} aria-label="الإعدادات"><${Icon} name="settings" size=${21} /></button>`}
         <button class="iconbtn" onClick=${() => openSheet(AccountSheet, { onLogout })} aria-label="حسابي"><${Icon} name="user" size=${21} /></button>`} />
     <main class="body">
-      <${SearchBox} value=${q} onChange=${setQ} placeholder="دوّر على أي حاجة: اسم، كود، مقاس، سواق..." />
+      <${SearchBox} value=${q} onChange=${setQ} placeholder="دوّر على أي حاجة: اسم، كود، سواق..." />
       ${results ? html`
         ${results.drivers.length > 0 && html`<${SecTitle}>سواقين<//><div class="card tight">${results.drivers.map((d) => html`<button class="lrow" key=${d.id} onClick=${() => openSheet(DriverSheet, { id: d.id })}>
             <span class="avatar sm">${d.name.trim().charAt(0)}</span><span class="grow"><b>${d.name}</b><small>${(idx.itemsByDriver.get(d.id) || []).length} قطعة</small></span><${Icon} name="chev" size=${18} /></button>`)}</div>`}
@@ -74,29 +82,18 @@ export function HomeTab({ onGo, onLogout }) {
           <span class="grow"><b>شغل العربيات</b><small>${jobs.length ? `${jobs.length} عربية في الجراش` : 'مفيش عربيات في الجراش دلوقتي'}${jReady ? ` · ${jReady} جاهزة` : ''}${jLate ? ` · ${jLate} متأخرة` : ''}</small></span>
           <${Icon} name="chev" size=${20} />
         </button>
-        <div class=${'tiles' + (tiles.length % 2 ? ' odd' : '')}>${tiles.map(([id, icon, label, sub, tone]) => html`<button class=${'tile t-' + tone + (id === 'trips' && active.length ? ' live' : '')} key=${id} onClick=${() => onGo(id)}>
-          <span class="tile-ic"><${Icon} name=${icon} size=${30} /></span><b>${label}</b><small>${sub}</small></button>`)}</div>
-        <button class="btn ghost" onClick=${() => openSheet(MoreSheet)}><${Icon} name="history" size=${20} /> آخر الحركات والاستيكرات</button>`}
-    </main>`;
-}
+        ${active.length > 0 && html`<div class="stack">${active.map((t) => html`<${TripCard} t=${t} key=${t.id} />`)}</div>`}
 
-/* آخر الحركات + الاستيكرات الفاضية (برا الرئيسية عشان تفضل بسيطة) */
-function MoreSheet({ close }) {
-  const [recent, setRecent] = useState(null);
-  useEffect(() => {
-    let off = false;
-    call('moves_list', { p: { limit: 12 } }).then((r) => { if (!off) setRecent(r); }).catch(() => { if (!off) setRecent([]); });
-    return () => { off = true; };
-  }, []);
-  return html`<${Sheet} title="آخر الحركات والاستيكرات" onClose=${close} full>
-    <div class="grid2">
-      <button class="btn dark sm" onClick=${() => openSheet(BlankStickersSheet)}><${Icon} name="qr" size=${18} /> استيكرات فاضية</button>
-      <button class="btn ghost sm" onClick=${() => openSheet(LogSheet)}><${Icon} name="history" size=${18} /> السجل كله</button>
-    </div>
-    <${SecTitle}>آخر الحركات<//>
-    ${recent === null ? html`<${Spinner} />` : recent.length === 0 ? html`<${Empty} icon="history" text="لسه مفيش حركات" />`
-      : html`<div class="card tight">${recent.map((m) => html`<${MoveRow} m=${m} key=${m.id} />`)}</div>`}
-  <//>`;
+        <${SecTitle} right=${html`<button class="linkbtn" onClick=${() => startNewItem({ kind: 'part', preset: seg === 'garage' ? { garage: true } : {} })}><${Icon} name="plus" size=${15} /> قطعة جديدة</button>`}>القطع اللي عندنا في الجراش<//>
+        <${Segmented} value=${seg} onChange=${setSeg} items=${[['drivers', `بتاعة السواقين (${sumQ(drvParts)})`], ['garage', `بتاعة الجراش (${sumQ(garParts)})`]]} />
+        ${shown.length === 0 ? html`<${Empty} icon=${seg === 'drivers' ? 'car' : 'home'} text="مفيش قطع هنا دلوقتي" />`
+          : html`<div class="card tight">${shown.slice(0, 6).map((i) => html`<${ItemRow} item=${i} key=${i.id} />`)}</div>`}
+        ${shown.length > 6 && html`<button class="btn ghost sm" onClick=${() => (seg === 'drivers' ? onGo('drivers') : openSheet(GaragePartsSheet))}>${seg === 'drivers' ? 'كل السواقين وقطعهم' : 'كل قطع الجراش'} (${shown.length})</button>`}
+
+        <${SecTitle}>أقسام تانية<//>
+        <div class="tiles small">${tiles.map(([id, icon, label, sub, tone, fn]) => html`<button class=${'tile t-' + tone} key=${id} onClick=${fn}>
+          <span class="tile-ic"><${Icon} name=${icon} size=${24} /></span><b>${label}</b><small>${sub}</small></button>`)}</div>`}
+    </main>`;
 }
 
 function AccountSheet({ onLogout, close }) {

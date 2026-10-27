@@ -75,6 +75,7 @@ export const OUT_REASONS = {
 /* أسماء الحركات في السجل */
 const MV = {
   create: ['اتسجلت', 'plus', 'green'],
+  make: ['اتصنّعت (قطع بأكواد)', 'plus', 'green'],
   in: ['دخول', 'in', 'green'],
   out: ['خروج', 'out', 'red'],
   adjust: ['جرد', 'list', 'gray'],

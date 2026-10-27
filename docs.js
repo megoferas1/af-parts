@@ -1,6 +1,6 @@
 /* docs.js — كشوفات PDF و Excel واستيكرات الـ QR (من غير سيرفر) */
-import { loadScript } from './api.js?v=7';
-import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=7';
+import { loadScript } from './api.js?v=8';
+import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=8';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const FONT = 'Tajawal';
@@ -326,7 +326,9 @@ async function labelImage(lab, logo) {
     g.drawImage(logo, x1 - lw, 26, lw, lh);
   }
   g.direction = 'ltr'; g.textAlign = 'center';
-  g.font = `800 58px ${FONT}, Arial, sans-serif`;
+  let cs = 58;   // كود قطعة التصدير أطول (AF-ANG-001-0007) فبيصغر لحد ما يدخل
+  g.font = `800 ${cs}px ${FONT}, Arial, sans-serif`;
+  while (g.measureText(lab.code).width > tw && cs > 30) { cs -= 2; g.font = `800 ${cs}px ${FONT}, Arial, sans-serif`; }
   g.fillText(lab.code, x0 + tw / 2, 196);
   g.direction = 'rtl'; g.textAlign = 'right';
   const fit = (text, size, weight, yy) => {
@@ -343,17 +345,21 @@ async function labelImage(lab, logo) {
   return c.toDataURL('image/jpeg', 0.92);
 }
 
-export async function buildStickersPdf(labels, onProgress) {
+/* start: أول مربع فاضي في الورقة (0 = أول مربع)، عشان الورقة اللي اتطبع منها قبل كده تكمل */
+export async function buildStickersPdf(labels, onProgress, start = 0) {
   await Promise.all([fontsReady(), loadQrGen()]);
   const logo = await loadLogo('logo-report.png');
   const jsPDF = await jsPDFCtor();
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
+  const cache = new Map();   // نفس الكود كذا نسخة بيترسم مرة واحدة
   for (let i = 0; i < labels.length; i++) {
-    const p = i % PER_PAGE;
+    const p = (i + start) % PER_PAGE;
     if (i > 0 && p === 0) doc.addPage();
     const col = p % SHEET.cols, row = Math.floor(p / SHEET.cols);
     const x = SHEET.left + col * (SHEET.w + SHEET.gapX), y = SHEET.top + row * SHEET.h;
-    const img = await labelImage(labels[i], logo);
+    const key = JSON.stringify(labels[i]);
+    if (!cache.has(key)) cache.set(key, await labelImage(labels[i], logo));
+    const img = cache.get(key);
     doc.addImage(img, 'JPEG', x + 1.2, y + 1.2, SHEET.w - 2.4, SHEET.h - 2.4, undefined, 'FAST');
     if (onProgress) onProgress(i + 1, labels.length);
   }

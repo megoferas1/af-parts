@@ -1,19 +1,19 @@
 /* tools.js — عدة الجراش + الليستات الجاهزة */
-import { html, useState, useMemo, Icon, Empty, Field, Stepper, SearchBox, Sheet, Hero, openSheet, toast, confirmBox } from './ui.js?v=7';
-import { call, errText } from './api.js?v=7';
-import { useStore, reload, ownerText } from './store.js?v=7';
-import * as L from './lib.js?v=7';
-import { ItemRow, ItemPicker, startNewItem, groupBy, run } from './items.js?v=7';
-import { tripGroups } from './trips.js?v=7';
-import { StickerSheet, labelFor } from './stickers.js?v=7';
-import { HeroScan } from './home.js?v=7';
+import { html, useState, useMemo, Icon, Empty, Field, Stepper, SearchBox, Sheet, Hero, openSheet, toast, confirmBox } from './ui.js?v=8';
+import { call, errText } from './api.js?v=8';
+import { useStore, reload, ownerText } from './store.js?v=8';
+import * as L from './lib.js?v=8';
+import { ItemRow, ItemPicker, startNewItem, groupBy, run } from './items.js?v=8';
+import { tripGroups } from './trips.js?v=8';
+import { StickerSheet, labelFor } from './stickers.js?v=8';
+import { HeroScan } from './home.js?v=8';
 
-export function ToolsTab() {
+export function ToolsTab({ back }) {
   const { idx, data } = useStore();
   const [q, setQ] = useState('');
   const list = useMemo(() => idx.kinds.tool.filter((i) => !q || L.matches(idx.hay.get(i.id), q)), [idx, q]);
   return html`
-    <${Hero} title="العدة" sub=${`حاجات الجراش · ${idx.kinds.tool.length} حاجة`} right=${html`<${HeroScan} />`} />
+    <${Hero} back=${back} title="العدة" sub=${`حاجات الجراش · ${idx.kinds.tool.length} حاجة`} right=${html`<${HeroScan} />`} />
     <main class="body">
       <${SearchBox} value=${q} onChange=${setQ} placeholder="دوّر في العدة (كراسي، خيام، جاك...)" />
       <div class="grid2">

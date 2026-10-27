@@ -1,6 +1,6 @@
 /* qr.js — رسم الـ QR وقراءته بالكاميرا */
-import { html, useState, useEffect, useRef, Icon, toast } from './ui.js?v=7';
-import { loadScript } from './api.js?v=7';
+import { html, useState, useEffect, useRef, Icon, toast } from './ui.js?v=8';
+import { loadScript } from './api.js?v=8';
 
 const QRGEN = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
 /* قارئ الكود: نسخة جوه الابلكيشن نفسه، ولو وقعت لأي سبب نجيبه من النت */
@@ -40,9 +40,11 @@ async function makeReader() {
 }
 
 export const extractCode = (text) => {
-  const m = String(text || '').toUpperCase().match(/AF-\d{3,}/);
+  const m = String(text || '').toUpperCase().match(CODE_RE);
   return m ? m[0] : '';
 };
+/* AF-00016 (استيكر عادي) أو AF-ANG-001-0007 (قطعة تصدير) */
+export const CODE_RE = /AF-(?:[A-Z0-9]{1,6}-\d{3,}-\d{4,}|\d{3,})/;
 /* اللي بيتكتب جوه الـ QR: لينك الابلكيشن + الكود (لو اتعمله سكان بكاميرا الموبايل العادية يفتح الابلكيشن) */
 export const qrText = (code) => location.origin + location.pathname.replace(/index\.html$/, '') + '#c=' + code;
 

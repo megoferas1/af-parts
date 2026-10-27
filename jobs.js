@@ -1,14 +1,14 @@
 /* jobs.js — شغل العربيات: كل عربية داخلة الجراش ليها أمر شغل
    الحالة، الشغل المطلوب، المسؤول، الساعات، الخامات، القطع اللي اتركبت، صور قبل وبعد، والفاتورة منه بدوسة */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=7';
-import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=7';
-import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=7';
-import * as L from './lib.js?v=7';
-import { run, ItemRow, InstallForm } from './items.js?v=7';
-import { DriverForm, CarForm } from './drivers.js?v=7';
-import { InvoiceForm, InvoiceSheet } from './invoices.js?v=7';
-import { HeroScan } from './home.js?v=7';
-import { ScanSheet } from './qr.js?v=7';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=8';
+import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=8';
+import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=8';
+import * as L from './lib.js?v=8';
+import { run, ItemRow, InstallForm } from './items.js?v=8';
+import { DriverForm, CarForm } from './drivers.js?v=8';
+import { InvoiceForm, InvoiceSheet } from './invoices.js?v=8';
+import { HeroScan } from './home.js?v=8';
+import { ScanSheet } from './qr.js?v=8';
 
 export const JOB_ST = {
   received: { label: 'استلمناها', tone: 'gray', icon: 'clip', sub: 'العربية دخلت الجراش ولسه ما بدأناش' },
@@ -148,7 +148,8 @@ export function JobForm({ id, preset, close }) {
     <//>`}
     ${other && html`<div class="note warn"><${Icon} name="alert" size=${18} /><span>العربية دي عليها أمر شغل مفتوح (${other.ref}: ${other.title})</span></div>`}
     <${Field} label="المطلوب" req hint="باختصار، مثلاً: رول كيج + كيت زاوية"><input class="input" value=${title} onInput=${(e) => setTitle(e.target.value)} /><//>
-    ${!old && html`<${Field} label="الشغل بالتفصيل (اختياري)" hint="كل سطر شغلانة، وهتعلّم عليها وانت بتخلص">
+    <${SecTitle}>تفاصيل (اختياري)<//>
+    ${!old && html`<${Field} label="الشغل بالتفصيل" hint="كل سطر شغلانة، وهتعلّم عليها وانت بتخلص">
       <textarea class="input" rows="4" dir="auto" value=${tasks} placeholder=${'لحام الرول كيج\nتركيب كيت الزاوية\nضبط الزوايا'} onInput=${(e) => setTasks(e.target.value)}></textarea><//>`}
     <div class="grid2">
       <${Field} label="ميعاد التسليم"><input class="input" type="date" value=${due} onInput=${(e) => setDue(e.target.value)} /><//>

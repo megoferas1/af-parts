@@ -1,16 +1,18 @@
 /* app.js — نقطة البداية: الدخول والتابات */
-import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=7';
-import { SUPABASE_URL } from './config.js?v=7';
-import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=7';
-import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=7';
-import { HomeTab } from './home.js?v=7';
-import { DriversTab } from './drivers.js?v=7';
-import { ToolsTab } from './tools.js?v=7';
-import { ExportTab } from './export.js?v=7';
-import { TripsTab } from './trips.js?v=7';
-import { InvoicesTab } from './invoices.js?v=7';
-import { JobsTab, isOpenJob } from './jobs.js?v=7';
-import { ItemSheet, startNewItem } from './items.js?v=7';
+import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=8';
+import { SUPABASE_URL } from './config.js?v=8';
+import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=8';
+import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=8';
+import { HomeTab } from './home.js?v=8';
+import { DriversTab } from './drivers.js?v=8';
+import { ToolsTab } from './tools.js?v=8';
+import { ExportTab } from './export.js?v=8';
+import { TripsTab } from './trips.js?v=8';
+import { InvoicesTab } from './invoices.js?v=8';
+import { JobsTab, isOpenJob } from './jobs.js?v=8';
+import { ItemSheet, startNewItem } from './items.js?v=8';
+import { CODE_RE } from './qr.js?v=8';
+import { UnitSheet } from './units.js?v=8';
 
 /* لو حصل خطأ غير متوقع نعرضه بدل شاشة بيضا */
 function showFatal(msg) {
@@ -85,7 +87,7 @@ function Login({ onIn }) {
 }
 
 /* ===================== الابلكيشن ===================== */
-function codeFromHash() { const m = location.hash.match(/c=(AF-\d+)/i); return m ? m[1].toUpperCase() : ''; }
+function codeFromHash() { const m = decodeURIComponent(location.hash).toUpperCase().match(CODE_RE); return m ? m[0] : ''; }
 
 async function openCode(code) {
   const s = getStore();
@@ -95,6 +97,7 @@ async function openCode(code) {
     const r = await call('code_info', { p_code: code });
     if (r.status === 'blank') return startNewItem({ code });
     if (r.status === 'item') return openSheet(ItemSheet, { id: r.item_id });
+    if (r.status === 'unit') return openSheet(UnitSheet, { code: r.code, itemId: r.item_id });
     toast('الكود ده مش من استيكراتنا', 'bad');
   } catch (e) { toast(errText(e), 'bad'); }
 }
@@ -127,24 +130,24 @@ function Main({ onLogout }) {
   const active = S.data.trips.filter((t) => t.status !== 'closed').length;
   const drafts = S.data.shipments.filter((s) => s.status === 'draft').length;
   const openJobs = S.data.jobs.filter(isOpenJob).length;
+  /* اللي بنستخدمه كل يوم تحت، والعدة والفواتير ظاهرين في الرئيسية */
   const nav = [
     { id: 'home', icon: 'home', label: 'الرئيسية' },
     { id: 'jobs', icon: 'clip', label: 'الشغل', badge: openJobs },
     { id: 'drivers', icon: 'car', label: 'السواقين' },
-    { id: 'tools', icon: 'wrench', label: 'العدة' },
     { id: 'export', icon: 'globe', label: 'التصدير', badge: drafts },
     { id: 'trips', icon: 'flag', label: 'الطلعات', badge: active },
-    ...(canInvoice() ? [{ id: 'invoices', icon: 'file', label: 'الفواتير' }] : []),
   ];
+  const back = () => setTab('home');
   return html`<div class="app">
     ${tab === 'home' && html`<${HomeTab} onGo=${setTab} onLogout=${onLogout} />`}
     ${tab === 'jobs' && html`<${JobsTab} />`}
     ${tab === 'drivers' && html`<${DriversTab} />`}
-    ${tab === 'tools' && html`<${ToolsTab} />`}
     ${tab === 'export' && html`<${ExportTab} />`}
     ${tab === 'trips' && html`<${TripsTab} />`}
-    ${tab === 'invoices' && canInvoice() && html`<${InvoicesTab} />`}
-    <${BottomNav} items=${nav} tab=${tab} onGo=${setTab} />
+    ${tab === 'tools' && html`<${ToolsTab} back=${back} />`}
+    ${tab === 'invoices' && canInvoice() && html`<${InvoicesTab} back=${back} />`}
+    <${BottomNav} items=${nav} tab=${tab === 'tools' || tab === 'invoices' ? 'home' : tab} onGo=${setTab} />
   </div>`;
 }
 

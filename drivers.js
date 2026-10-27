@@ -1,13 +1,13 @@
 /* drivers.js — السواقين وعربياتهم وقطعهم */
-import { html, useState, useMemo, Icon, Empty, Spinner, Field, Chips, SearchBox, Act, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=7';
-import { call, errText } from './api.js?v=7';
-import { useStore, reload } from './store.js?v=7';
-import * as L from './lib.js?v=7';
-import { ItemRow, ItemSheet, startNewItem, run, groupBy } from './items.js?v=7';
-import { StickerSheet, labelFor, FileReady } from './stickers.js?v=7';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=7';
-import { HeroScan } from './home.js?v=7';
-import { JobCard, JobForm, CarJobsSheet, isOpenJob } from './jobs.js?v=7';
+import { html, useState, useMemo, Icon, Empty, Spinner, Field, Chips, SearchBox, Act, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=8';
+import { call, errText } from './api.js?v=8';
+import { useStore, reload } from './store.js?v=8';
+import * as L from './lib.js?v=8';
+import { ItemRow, ItemSheet, startNewItem, run, groupBy } from './items.js?v=8';
+import { StickerSheet, labelsByQty, FileReady } from './stickers.js?v=8';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=8';
+import { HeroScan } from './home.js?v=8';
+import { JobCard, JobForm, CarJobsSheet, isOpenJob } from './jobs.js?v=8';
 
 export function DriversTab() {
   const { data, idx } = useStore();
@@ -51,7 +51,7 @@ export function GaragePartsSheet({ close }) {
   return html`<${Sheet} title="قطع الجراش" sub=${`${L.sum(idx.garageParts, (i) => i.qty)} قطعة`} onClose=${close} full>
     <div class="grid2">
       <button class="btn sm" onClick=${() => startNewItem({ kind: 'part', preset: { garage: true } })}><${Icon} name="plus" size=${18} /> قطعة جديدة</button>
-      <button class="btn ghost sm" disabled=${!have.length} onClick=${() => openSheet(StickerSheet, { labels: have.filter((i) => i.code).map((i) => labelFor(i, idx)), title: 'استيكرات قطع الجراش' })}><${Icon} name="printer" size=${18} /> استيكرات</button>
+      <button class="btn ghost sm" disabled=${!have.length} onClick=${() => openSheet(StickerSheet, { labels: labelsByQty(have, idx), title: 'استيكرات قطع الجراش' })}><${Icon} name="printer" size=${18} /> استيكرات</button>
     </div>
     ${idx.garageParts.length > 0 && html`<${SearchBox} value=${q} onChange=${setQ} placeholder="دوّر في قطع الجراش" />`}
     ${have.length === 0 && gone.length === 0 ? html`<${Empty} icon="home" text=${q ? 'مفيش حاجة كده' : 'لسه مفيش قطع للجراش. سجّلها من هنا أو اعمل سكان لاستيكر فاضي واختار "قطعة بتاعة الجراش".'} />`
@@ -91,7 +91,7 @@ export function DriverSheet({ id, close }) {
     <div class="acts">
       <${Act} icon="plus" label="قطعة جديدة" tone="red" onClick=${() => startNewItem({ kind: 'part', preset: { driver_id: id, car_id: car || '' } })} />
       <${Act} icon="file" label="كشف للسواق" tone="dark" onClick=${() => openSheet(DriverReportSheet, { id })} />
-      <${Act} icon="printer" label="استيكرات" disabled=${!here.length} onClick=${() => openSheet(StickerSheet, { labels: here.map((i) => labelFor(i, idx)), title: 'استيكرات ' + d.name })} />
+      <${Act} icon="printer" label="استيكرات" disabled=${!here.length} onClick=${() => openSheet(StickerSheet, { labels: labelsByQty(here, idx), title: 'استيكرات ' + d.name })} />
       <${Act} icon="edit" label="تعديل" onClick=${() => openSheet(DriverForm, { id })} />
     </div>
 

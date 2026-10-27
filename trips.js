@@ -1,14 +1,14 @@
 /* trips.js — الطلعات: سباق / تمرين / طلعة تانية */
-import { html, useState, Icon, Pill, Empty, Field, Chips, Stepper, Segmented, Sheet, SecTitle, Hero, openSheet, toast, confirmBox, Spinner } from './ui.js?v=7';
-import { call, errText } from './api.js?v=7';
-import { useStore, getStore, reload, ownerText } from './store.js?v=7';
-import * as L from './lib.js?v=7';
-import { ItemSheet, ItemPicker, OldPartFields, Thumb, run, groupBy, startNewItem } from './items.js?v=7';
-import { TemplatesSheet, TemplateForm } from './tools.js?v=7';
-import { ScanSheet } from './qr.js?v=7';
-import { FileReady } from './stickers.js?v=7';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=7';
-import { HeroScan } from './home.js?v=7';
+import { html, useState, Icon, Pill, Empty, Field, Chips, Stepper, Segmented, Sheet, SecTitle, Hero, openSheet, toast, confirmBox, Spinner } from './ui.js?v=8';
+import { call, errText } from './api.js?v=8';
+import { useStore, getStore, reload, ownerText } from './store.js?v=8';
+import * as L from './lib.js?v=8';
+import { ItemSheet, ItemPicker, OldPartFields, Thumb, run, groupBy, startNewItem } from './items.js?v=8';
+import { TemplatesSheet, TemplateForm } from './tools.js?v=8';
+import { ScanSheet } from './qr.js?v=8';
+import { FileReady } from './stickers.js?v=8';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=8';
+import { HeroScan } from './home.js?v=8';
 
 const okOf = (x) => x.qty - x.damaged - x.installed - x.used - x.lost;
 
@@ -33,12 +33,12 @@ export function TripCard({ t }) {
   </button>`;
 }
 
-export function TripsTab() {
+export function TripsTab({ back }) {
   const { data } = useStore();
   const active = data.trips.filter((t) => t.status !== 'closed');
   const closed = data.trips.filter((t) => t.status === 'closed');
   return html`
-    <${Hero} title="الطلعات" sub="سباقات وتمرينات وأي طلعة" right=${html`<${HeroScan} />`} />
+    <${Hero} back=${back} title="الطلعات" sub="سباقات وتمرينات وأي طلعة" right=${html`<${HeroScan} />`} />
     <main class="body">
       <button class="btn bigbtn" onClick=${() => openSheet(TripForm, {})}><${Icon} name="plus" size=${24} /> طلعة جديدة</button>
       ${active.length > 0 && html`<${SecTitle}>شغالة دلوقتي<//><div class="stack">${active.map((t) => html`<${TripCard} t=${t} key=${t.id} />`)}</div>`}

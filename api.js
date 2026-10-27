@@ -1,5 +1,5 @@
 /* api.js — الاتصال بـ Supabase */
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=7';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=8';
 
 if (!window.supabase) throw new Error('مكتبة Supabase ما اتحمّلتش (cdn.jsdelivr.net)');
 export const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -80,6 +80,11 @@ const MSG = {
   job_title_required: 'اكتب المطلوب يتعمل في العربية',
   bad_status: 'الحالة غلط',
   bad_hours: 'الساعات لازم تكون من ربع ساعة لـ 24 ساعة',
+  unit_added: 'القطعة دي اتضافت للشحنة دي خلاص',
+  unit_other_ship: 'القطعة دي في شحنة تانية بتتجهز',
+  unit_not_stock: 'القطعة دي مش في المخزن (اتشحنت أو خرجت)',
+  unit_unknown: 'الكود ده مش لقطعة متسجلة',
+  scan_unit: 'امسح استيكر القطعة نفسها مش استيكر المنتج',
   not_found: 'مش لاقيينها، يمكن اتمسحت',
 };
 export function errText(e) {

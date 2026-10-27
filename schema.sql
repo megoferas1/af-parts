@@ -493,9 +493,15 @@ begin
              order by t.name)
         from public.templates t), '[]'::jsonb),
     'customers', coalesce((select jsonb_agg(to_jsonb(c) order by c.name) from public.customers c), '[]'::jsonb),
+    'units', coalesce((select jsonb_agg(jsonb_build_object('id', u.id, 'item_id', u.item_id, 'code', u.code, 'serial', u.serial,
+                                                       'created_at', u.created_at) order by u.item_id, u.serial)
+                         from public.units u where u.status = 'stock'), '[]'::jsonb),
     'shipments', coalesce((
       select jsonb_agg(to_jsonb(s) || jsonb_build_object('items', coalesce((
-               select jsonb_agg(to_jsonb(x) - 'shipment_id') from public.shipment_items x where x.shipment_id = s.id), '[]'::jsonb))
+               select jsonb_agg(to_jsonb(x) - 'shipment_id') from public.shipment_items x where x.shipment_id = s.id), '[]'::jsonb),
+             'units', coalesce((
+               select jsonb_agg(jsonb_build_object('id', u.id, 'item_id', u.item_id, 'code', u.code) order by u.item_id, u.serial)
+                 from public.shipment_units su join public.units u on u.id = su.unit_id where su.shipment_id = s.id), '[]'::jsonb))
              order by (s.status = 'shipped'), s.ship_date desc, s.created_at desc)
         from (select * from public.shipments where status = 'draft'
               union all
@@ -618,6 +624,13 @@ create or replace function public.code_info(p_token text, p_code text)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare a jsonb := public._actor(p_token); v text := upper(trim(coalesce(p_code, ''))); iid uuid;
 begin
+  select item_id into iid from public.units where code = v;
+  if iid is not null then
+    return (select jsonb_build_object('status', 'unit', 'item_id', u.item_id, 'unit_id', u.id, 'code', u.code,
+                                      'unit_status', u.status, 'note', u.note, 'out_at', u.out_at, 'created_at', u.created_at,
+                                      'ship_ref', (select s.ref from public.shipments s where s.id = u.shipment_id))
+              from public.units u where u.code = v);
+  end if;
   select id into iid from public.items where code = v;
   if iid is not null then return jsonb_build_object('status', 'item', 'item_id', iid, 'code', v); end if;
   if exists (select 1 from public.codes where code = v and not used) then
@@ -1177,8 +1190,12 @@ begin
     if k not in ('product', 'part') then raise exception 'bad_kind'; end if;
     select qty into have from public.shipment_items where shipment_id = p_ship and item_id = iid;
     if coalesce(have, 0) + q > cur then raise exception 'not_enough'; end if;
-    insert into public.shipment_items (shipment_id, item_id, qty) values (p_ship, iid, q)
-      on conflict (shipment_id, item_id) do update set qty = public.shipment_items.qty + excluded.qty;
+    if k = 'product' then
+      perform public._ship_take(p_ship, iid, q);   -- المنتج: بياخد أقدم قطع في المخزن بأكوادها
+    else
+      insert into public.shipment_items (shipment_id, item_id, qty) values (p_ship, iid, q)
+        on conflict (shipment_id, item_id) do update set qty = public.shipment_items.qty + excluded.qty;
+    end if;
   end loop;
 end $$;
 
@@ -1221,16 +1238,44 @@ end $$;
 
 create or replace function public.shipment_set_qty(p_token text, p_ship uuid, p_item uuid, p_qty int)
 returns void language plpgsql security definer set search_path = public, extensions as $$
-declare a jsonb := public._actor(p_token); cur int;
+declare a jsonb := public._actor(p_token); cur int; k text; have int;
 begin
   if not exists (select 1 from public.shipments where id = p_ship and status = 'draft') then raise exception 'shipment_done'; end if;
+  select qty, kind into cur, k from public.items where id = p_item;
+  if k = 'product' then
+    select count(*) into have from public.shipment_units where shipment_id = p_ship and item_id = p_item;
+    if coalesce(p_qty, 0) > cur then raise exception 'not_enough'; end if;
+    if coalesce(p_qty, 0) > have then
+      perform public._ship_take(p_ship, p_item, p_qty - have);
+    elsif coalesce(p_qty, 0) < have then
+      -- اللي اتضاف الآخر يطلع الأول
+      delete from public.shipment_units where unit_id in (
+        select unit_id from public.shipment_units where shipment_id = p_ship and item_id = p_item
+         order by added_at desc limit have - greatest(coalesce(p_qty, 0), 0));
+      perform public._ship_fix(p_ship, p_item);
+    end if;
+    return;
+  end if;
   if coalesce(p_qty, 0) < 1 then
     delete from public.shipment_items where shipment_id = p_ship and item_id = p_item;
     return;
   end if;
-  select qty into cur from public.items where id = p_item;
   if p_qty > cur then raise exception 'not_enough'; end if;
   update public.shipment_items set qty = p_qty where shipment_id = p_ship and item_id = p_item;
+end $$;
+
+-- ياخد أقدم قطع المنتج اللي في المخزن ومش في شحنة
+create or replace function public._ship_take(p_ship uuid, p_item uuid, p_n int)
+returns void language plpgsql security definer set search_path = public as $$
+declare got int;
+begin
+  insert into public.shipment_units (unit_id, shipment_id, item_id)
+  select x.id, p_ship, p_item from public.units x
+   where x.item_id = p_item and x.status = 'stock' and not exists (select 1 from public.shipment_units su where su.unit_id = x.id)
+   order by x.serial limit p_n;
+  get diagnostics got = row_count;
+  if got < p_n then raise exception 'not_enough'; end if;
+  perform public._ship_fix(p_ship, p_item);
 end $$;
 
 create or replace function public.shipment_ship(p_token text, p_ship uuid)
@@ -1241,6 +1286,9 @@ begin
   if not found or s.status <> 'draft' then raise exception 'shipment_done'; end if;
   if not exists (select 1 from public.shipment_items where shipment_id = p_ship) then raise exception 'shipment_empty'; end if;
   select name into cname from public.customers where id = s.customer_id;
+  -- قطع المنتجات بأكوادها بتتعلّم إنها اتشحنت
+  update public.units u set status = 'shipped', shipment_id = p_ship, out_at = now()
+    from public.shipment_units su where su.shipment_id = p_ship and su.unit_id = u.id;
   for x in select si.item_id, si.qty, i.qty as cur from public.shipment_items si join public.items i on i.id = si.item_id
             where si.shipment_id = p_ship for update of i loop
     if x.qty > x.cur then raise exception 'not_enough'; end if;
@@ -1292,7 +1340,7 @@ begin
          and (f_to is null or (mv.created_at at time zone 'Africa/Cairo')::date <= f_to)
          and (f_before is null or mv.id < f_before)
          and (f_group = ''
-              or (f_group = 'io' and mv.type in ('create', 'in', 'out', 'adjust', 'ship'))
+              or (f_group = 'io' and mv.type in ('create', 'make', 'in', 'out', 'adjust', 'ship'))
               or (f_group = 'install' and mv.type in ('install', 'removed', 'trip_installed'))
               or (f_group = 'trip' and left(mv.type, 5) = 'trip_')
               or (f_group = 'edit' and mv.type in ('move', 'cond', 'edit')))
@@ -1898,7 +1946,205 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------
--- 16) الصلاحيات
+-- 16) قطع التصدير: كل قطعة ليها كود لوحدها (رقم القطعة + مسلسل، زي AF-ANG-001-0007)
+--     عدد المنتج = عدد قطعه اللي في المخزن، وبيتظبط لوحده مع أي حركة
+-- ---------------------------------------------------------------------
+create table if not exists public.units (
+  id uuid primary key default gen_random_uuid(),
+  item_id uuid not null references public.items(id) on delete cascade,
+  serial int not null,
+  code text not null unique,
+  status text not null default 'stock' check (status in ('stock', 'shipped', 'out')),
+  shipment_id uuid references public.shipments(id) on delete set null,
+  note text not null default '',
+  created_by text not null default '',
+  created_at timestamptz not null default now(),
+  out_at timestamptz,
+  unique (item_id, serial)
+);
+create index if not exists units_item_idx on public.units (item_id, status, serial);
+
+-- القطع اللي في كل شحنة (بتفضل بعد الشحن عشان نعرف أنهي كود راح لمين)
+create table if not exists public.shipment_units (
+  unit_id uuid primary key references public.units(id) on delete cascade,
+  shipment_id uuid not null references public.shipments(id) on delete cascade,
+  item_id uuid not null references public.items(id) on delete cascade,
+  added_at timestamptz not null default clock_timestamp()
+);
+create index if not exists shipment_units_ship_idx on public.shipment_units (shipment_id, item_id);
+
+do $$
+declare t text;
+begin
+  foreach t in array array['units', 'shipment_units'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('revoke all on public.%I from anon, authenticated', t);
+  end loop;
+end $$;
+
+-- قطعة جديدة بكود جديد
+create or replace function public._unit_new(p_item uuid, p_by text)
+returns text language plpgsql security definer set search_path = public as $$
+declare pn text; cat text; s int; v text;
+begin
+  select upper(nullif(trim(part_no), '')), category into pn, cat from public.items where id = p_item and kind = 'product' for update;
+  if not found then raise exception 'not_found'; end if;
+  if pn is null then
+    pn := public._next_part_no(cat);
+    update public.items set part_no = pn where id = p_item;
+  end if;
+  select coalesce(max(serial), 0) + 1 into s from public.units where item_id = p_item;
+  loop
+    v := pn || '-' || lpad(s::text, 4, '0');
+    exit when not exists (select 1 from public.codes where code = v);
+    s := s + 1;
+  end loop;
+  insert into public.codes (code, used) values (v, true);
+  insert into public.units (item_id, serial, code, created_by) values (p_item, s, v, coalesce(p_by, ''));
+  return v;
+end $$;
+
+-- عدد قطع المنتج في الشحنة = عدد أكوادها
+create or replace function public._ship_fix(p_ship uuid, p_item uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare n int;
+begin
+  select count(*) into n from public.shipment_units where shipment_id = p_ship and item_id = p_item;
+  if n = 0 then
+    delete from public.shipment_items where shipment_id = p_ship and item_id = p_item;
+  else
+    insert into public.shipment_items (shipment_id, item_id, qty) values (p_ship, p_item, n)
+      on conflict (shipment_id, item_id) do update set qty = excluded.qty;
+  end if;
+end $$;
+
+-- يخلي قطع المخزن قد عدد المنتج: لو العدد زاد بيرجّع آخر قطع خرجت (زي التراجع أو الرجوع من طلعة) أو يعمل جديدة،
+-- ولو قل بيخرّج الأقدم (اللي مش في شحنة الأول)
+create or replace function public._units_sync(p_item uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare q int; k text; n int; d int; got int; u record;
+begin
+  select qty, kind into q, k from public.items where id = p_item;
+  if k is distinct from 'product' then return; end if;
+  select count(*) into n from public.units where item_id = p_item and status = 'stock';
+  if q > n then
+    d := q - n;
+    update public.units set status = 'stock', out_at = null, note = ''
+     where id in (select id from public.units where item_id = p_item and status = 'out'
+                   order by out_at desc nulls last, serial desc limit d);
+    get diagnostics got = row_count;
+    for i in 1..(d - got) loop perform public._unit_new(p_item, ''); end loop;
+  elsif q < n then
+    for u in select x.id, su.shipment_id from public.units x
+               left join public.shipment_units su on su.unit_id = x.id
+              where x.item_id = p_item and x.status = 'stock'
+              order by (su.unit_id is not null), x.serial limit n - q loop
+      update public.units set status = 'out', out_at = now() where id = u.id;
+      if u.shipment_id is not null then
+        delete from public.shipment_units where unit_id = u.id;
+        perform public._ship_fix(u.shipment_id, p_item);
+      end if;
+    end loop;
+  end if;
+end $$;
+
+create or replace function public._units_trg()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.kind = 'product' then perform public._units_sync(new.id); end if;
+  return null;
+end $$;
+drop trigger if exists items_units_sync on public.items;
+create trigger items_units_sync after insert or update of qty on public.items
+  for each row execute function public._units_trg();
+
+-- التحويل: المنتجات اللي كان عليها عدد على كود واحد بتتقسم لقطع بأكواد، والشحنات اللي لسه بتتجهز تاخد قطعها
+do $$
+declare r record;
+begin
+  for r in select id from public.items where kind = 'product' loop
+    perform public._units_sync(r.id);
+  end loop;
+  for r in select si.shipment_id, si.item_id, si.qty from public.shipment_items si
+             join public.shipments s on s.id = si.shipment_id join public.items i on i.id = si.item_id
+            where s.status = 'draft' and i.kind = 'product'
+              and si.qty > (select count(*) from public.shipment_units su where su.shipment_id = si.shipment_id and su.item_id = si.item_id) loop
+    insert into public.shipment_units (unit_id, shipment_id, item_id)
+    select x.id, r.shipment_id, r.item_id from public.units x
+     where x.item_id = r.item_id and x.status = 'stock' and not exists (select 1 from public.shipment_units su where su.unit_id = x.id)
+     order by x.serial
+     limit r.qty - (select count(*) from public.shipment_units su where su.shipment_id = r.shipment_id and su.item_id = r.item_id);
+    perform public._ship_fix(r.shipment_id, r.item_id);
+  end loop;
+end $$;
+
+-- «صنّعنا»: كذا قطعة مرة واحدة، كل واحدة بكود
+create or replace function public.make_units(p_token text, p_item uuid, p_count int, p_note text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); k text; res jsonb := '[]'::jsonb; n int := coalesce(p_count, 0);
+begin
+  select kind into k from public.items where id = p_item for update;
+  if k is null then raise exception 'not_found'; end if;
+  if k <> 'product' then raise exception 'bad_kind'; end if;
+  if n < 1 or n > 200 then raise exception 'bad_qty'; end if;
+  for i in 1..n loop res := res || to_jsonb(public._unit_new(p_item, a->>'name')); end loop;
+  update public.items set qty = qty + n, updated_at = now() where id = p_item;
+  perform public._log(p_item, 'make', n, n,
+    concat_ws(' — ', (res->>0) || case when n > 1 then ' → ' || (res->>(n - 1)) else '' end, nullif(trim(coalesce(p_note, '')), '')), a);
+  return res;
+end $$;
+
+-- خروج قطعة واحدة بكودها (اتباعت، اترمت...)
+create or replace function public.unit_out(p_token text, p_unit uuid, p_note text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); u public.units%rowtype; sh uuid;
+begin
+  select * into u from public.units where id = p_unit for update;
+  if not found then raise exception 'not_found'; end if;
+  if u.status <> 'stock' then raise exception 'unit_not_stock'; end if;
+  perform 1 from public.items where id = u.item_id for update;
+  select shipment_id into sh from public.shipment_units where unit_id = p_unit;
+  if sh is not null then
+    delete from public.shipment_units where unit_id = p_unit;
+    perform public._ship_fix(sh, u.item_id);
+  end if;
+  update public.units set status = 'out', out_at = now(), note = trim(coalesce(p_note, '')) where id = p_unit;
+  update public.items set qty = qty - 1, updated_at = now() where id = u.item_id;
+  perform public._log(u.item_id, 'out', -1, 1, concat_ws(' — ', u.code, nullif(trim(coalesce(p_note, '')), '')), a);
+end $$;
+
+-- سكان قطعة وهي بتتحط في صندوق الشحنة
+create or replace function public.shipment_add_unit(p_token text, p_ship uuid, p_code text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); u public.units%rowtype; sh uuid; v text := upper(trim(coalesce(p_code, '')));
+begin
+  if not exists (select 1 from public.shipments where id = p_ship and status = 'draft') then raise exception 'shipment_done'; end if;
+  select * into u from public.units where code = v for update;
+  if not found then
+    if exists (select 1 from public.items where code = v and kind = 'product') then raise exception 'scan_unit'; end if;
+    raise exception 'unit_unknown';
+  end if;
+  if u.status <> 'stock' then raise exception 'unit_not_stock'; end if;
+  select shipment_id into sh from public.shipment_units where unit_id = u.id;
+  if sh = p_ship then raise exception 'unit_added'; end if;
+  if sh is not null then raise exception 'unit_other_ship'; end if;
+  insert into public.shipment_units (unit_id, shipment_id, item_id) values (u.id, p_ship, u.item_id);
+  perform public._ship_fix(p_ship, u.item_id);
+  return jsonb_build_object('item_id', u.item_id, 'code', u.code);
+end $$;
+
+create or replace function public.shipment_remove_unit(p_token text, p_ship uuid, p_unit uuid)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); iid uuid;
+begin
+  if not exists (select 1 from public.shipments where id = p_ship and status = 'draft') then raise exception 'shipment_done'; end if;
+  delete from public.shipment_units where unit_id = p_unit and shipment_id = p_ship returning item_id into iid;
+  if iid is null then raise exception 'not_found'; end if;
+  perform public._ship_fix(p_ship, iid);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 17) الصلاحيات
 -- ---------------------------------------------------------------------
 do $$
 declare f record;
@@ -1922,7 +2168,7 @@ grant usage on schema public to anon, authenticated;
 grant execute on function public._ticket_ok(text, text) to anon, authenticated;
 
 -- ---------------------------------------------------------------------
--- 17) مكان الصور (Storage) — لو فشل لأي سبب، باقي النظام بيشتغل عادي من غير صور
+-- 18) مكان الصور (Storage) — لو فشل لأي سبب، باقي النظام بيشتغل عادي من غير صور
 -- ---------------------------------------------------------------------
 do $$
 begin

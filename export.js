@@ -1,14 +1,14 @@
 /* export.js — التصدير: المنتجات، الشحنات، العملاء */
-import { html, useState, useMemo, Icon, Pill, Empty, Field, Chips, Stepper, SearchBox, Segmented, Sheet, Hero, openSheet, toast, confirmBox } from './ui.js?v=7';
-import { call, errText } from './api.js?v=7';
-import { useStore, getStore, reload, ownerText, canInvoice } from './store.js?v=7';
-import { InvoiceForm, invoiceFromShipment } from './invoices.js?v=7';
-import * as L from './lib.js?v=7';
-import { ItemRow, ItemPicker, startNewItem, groupBy, run } from './items.js?v=7';
-import { StickerSheet, labelFor, FileReady } from './stickers.js?v=7';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=7';
-import { ScanSheet } from './qr.js?v=7';
-import { HeroScan } from './home.js?v=7';
+import { html, useState, useMemo, Icon, Pill, Empty, Field, Chips, Stepper, SearchBox, Segmented, Sheet, Hero, openSheet, toast, confirmBox } from './ui.js?v=8';
+import { call, errText } from './api.js?v=8';
+import { useStore, getStore, reload, ownerText, canInvoice } from './store.js?v=8';
+import { InvoiceForm, invoiceFromShipment } from './invoices.js?v=8';
+import * as L from './lib.js?v=8';
+import { ItemRow, ItemPicker, startNewItem, groupBy, run } from './items.js?v=8';
+import { StickerSheet, labelFor, FileReady } from './stickers.js?v=8';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=8';
+import { ScanSheet } from './qr.js?v=8';
+import { HeroScan } from './home.js?v=8';
 
 export function ExportTab() {
   const { idx, data } = useStore();
@@ -27,7 +27,7 @@ export function ExportTab() {
           : groupBy(prods, (i) => i.category, idx.cats.product).map(([cat, its]) => html`<div class="grp" key=${cat}>
               <div class="grp-h">${cat} <i>${L.sum(its, (i) => i.qty)}</i></div>
               <div class="card tight">${its.map((i) => html`<${ItemRow} item=${i} key=${i.id} extra=${i.name_en && html`<span class="soft tiny ltr-t">${i.name_en}</span>`} />`)}</div></div>`)}
-        ${prods.length > 0 && html`<button class="btn ghost" onClick=${() => openSheet(StickerSheet, { labels: prods.map((i) => labelFor(i, idx)), title: 'استيكرات المنتجات' })}><${Icon} name="printer" size=${20} /> اطبع استيكرات</button>`}`}
+`}
       ${seg === 'shipments' && html`
         <button class="btn" onClick=${() => openSheet(ShipmentForm, {})}><${Icon} name="plus" size=${22} /> شحنة جديدة</button>
         ${data.shipments.length === 0 ? html`<${Empty} icon="globe" text="لسه مفيش شحنات" />`
@@ -104,12 +104,12 @@ function CustomerFields({ c, set }) {
   شحنة جديدة: بتاخد بيانات العميل (جديد أو من اللي عندنا) وتفتحله الشحنة.
   itemId: لو جاية من "خروج ← شحن" لقطعة أو منتج، الحاجة دي بتتحط في الشحنة على طول.
 */
-export function ShipmentForm({ id, itemId, close }) {
+export function ShipmentForm({ id, itemId, unitCode, close }) {
   const { data, idx } = useStore();
   const s = id ? data.shipments.find((x) => x.id === id) : null;
   const item = itemId ? idx.items.get(itemId) : null;
   const driver = item && item.driver_id ? idx.drivers.get(item.driver_id) : null;
-  const avail = item ? item.qty - (idx.shipQty.get(item.id) || 0) : 0;
+  const avail = unitCode ? 1 : item ? item.qty - (idx.shipQty.get(item.id) || 0) : 0;
   const drafts = item ? data.shipments.filter((x) => x.status === 'draft') : [];
   const hasCust = data.customers.length > 0;
   const [mode, setMode] = useState(s ? 'old' : 'new');
@@ -131,7 +131,8 @@ export function ShipmentForm({ id, itemId, close }) {
   async function addToDraft(sh) {
     setBusy(true);
     try {
-      await call('shipment_add', { p_ship: sh.id, p_items: [{ item_id: item.id, qty }] });
+      if (unitCode) await call('shipment_add_unit', { p_ship: sh.id, p_code: unitCode });
+      else await call('shipment_add', { p_ship: sh.id, p_items: [{ item_id: item.id, qty }] });
       await reload().catch(() => {});
       toast('اتضافت لشحنة ' + sh.ref); close();
       openSheet(ShipmentSheet, { id: sh.id });
@@ -151,7 +152,8 @@ export function ShipmentForm({ id, itemId, close }) {
       } else {
         sid = await call('shipment_create', { p: {
           customer_id: mode === 'old' ? cust : null, customer: mode === 'new' ? c : null, ship_date: date, note,
-          items: item ? [{ item_id: item.id, qty }] : [] } });
+          items: item && !unitCode ? [{ item_id: item.id, qty }] : [] } });
+        if (unitCode) await call('shipment_add_unit', { p_ship: sid, p_code: unitCode });
       }
       await reload().catch(() => {});
       toast(id ? 'اتحفظت' : item ? 'الشحنة اتفتحت — دوس "اتشحنت" لما تطلع' : 'الشحنة اتفتحت، ضيف الحاجات اللي فيها');
@@ -161,11 +163,11 @@ export function ShipmentForm({ id, itemId, close }) {
     setBusy(false);
   }
 
-  return html`<${Sheet} title=${id ? 'تعديل الشحنة' : item ? 'شحن ' + item.name : 'شحنة جديدة'} sub=${item ? L.bidi(item.size, item.code, item.kind === 'part' ? ownerText(item, idx) : '') : ''} onClose=${close}
+  return html`<${Sheet} title=${id ? 'تعديل الشحنة' : item ? 'شحن ' + item.name : 'شحنة جديدة'} sub=${item ? L.bidi(item.size, unitCode || (item.kind === 'product' ? item.part_no : item.code), item.kind === 'part' ? ownerText(item, idx) : '') : ''} onClose=${close}
     footer=${html`<button class="btn bigbtn" disabled=${busy} onClick=${save}>${busy ? 'لحظة...' : id ? 'حفظ' : html`<${Icon} name="globe" size=${22} /> افتح الشحنة`}</button>`}>
     ${item && html`<div class="card soft-card stack">
       ${avail < 1 ? html`<div class="note warn"><${Icon} name="alert" size=${18} /><span>كل اللي عندنا منها في شحنة بتتجهز.</span></div>`
-        : avail > 1 ? html`<${Field} label="كام واحدة هتتشحن؟"><${Stepper} value=${qty} min=${1} max=${avail} onChange=${setQty} big /><//>`
+        : avail > 1 ? html`<${Field} label="كام واحدة هتتشحن؟" hint=${item.kind === 'product' ? 'هياخد أقدم قطع في المخزن بأكوادها، وتقدر تعمل سكان بدل كده جوه الشحنة' : ''}><${Stepper} value=${qty} min=${1} max=${avail} onChange=${setQty} big /><//>`
         : html`<div class="row gap8"><${Icon} name="box" size=${18} /><span>هتتشحن <b class="num">1</b></span></div>`}
     </div>`}
     ${item && avail > 0 && drafts.length > 0 && html`<${Field} label="ضيفها لشحنة بتتجهز؟" hint="أو كمّل تحت وافتح شحنة جديدة">
@@ -215,11 +217,16 @@ export function ShipmentSheet({ id, close }) {
   }
   function scan() {
     openSheet(ScanSheet, {
-      continuous: true, title: 'ضيف للشحنة ' + s.ref, hint: 'كل سكان بيزوّد قطعة واحدة',
+      continuous: true, title: 'ضيف للشحنة ' + s.ref, hint: 'امسح استيكر كل قطعة وانت بتحطها في الصندوق',
       onCode: async (code) => {
-        const it = getStore().idx.byCode.get(code);
-        if (!it) return { ok: false, msg: 'الكود ده مش متسجل' };
+        const st = getStore().idx;
+        if (st.unitByCode.has(code) || !st.byCode.has(code)) {
+          try { const r = await call('shipment_add_unit', { p_ship: id, p_code: code }); await reload(); const i = st.items.get(r.item_id); return { ok: true, msg: '+1 ' + (i ? i.name : '') + ' · ' + r.code }; }
+          catch (e) { return { ok: false, msg: errText(e) }; }
+        }
+        const it = st.byCode.get(code);
         if (it.kind === 'tool') return { ok: false, msg: 'العدة مش بتتشحن' };
+        if (it.kind === 'product') return { ok: false, msg: 'امسح استيكر القطعة نفسها (زي ' + (it.part_no || '') + '-0001)' };
         try { await call('shipment_add', { p_ship: id, p_items: [{ item_id: it.id, qty: 1 }] }); await reload(); return { ok: true, msg: '+1 ' + it.name }; }
         catch (e) { return { ok: false, msg: errText(e) }; }
       },
@@ -246,13 +253,14 @@ export function ShipmentSheet({ id, close }) {
       <span class="grow"><b>${c.name}</b><small>${L.bidi(c.phone, c.country) || (c.address ? '' : 'دوس هنا وضيف التليفون والعنوان')}</small>${c.address && html`<small dir="auto">${c.address}</small>`}</span>
       <${Icon} name="edit" size=${16} /></button>`}
     ${draft && html`<div class="grid2">
-      <button class="btn dark sm" onClick=${add}><${Icon} name="plus" size=${18} /> ضيف حاجات</button>
-      <button class="btn ghost sm" onClick=${scan}><${Icon} name="scan" size=${18} /> سكان وضيف</button></div>`}
+      <button class="btn dark sm" onClick=${scan}><${Icon} name="scan" size=${18} /> سكان وضيف</button>
+      <button class="btn ghost sm" onClick=${add}><${Icon} name="plus" size=${18} /> اختار بالعدد</button></div>`}
     ${s.items.length === 0 ? html`<${Empty} icon="box" text="الشحنة فاضية" />` : html`<div class="card tight">${s.items.map((x) => {
       const i = idx.items.get(x.item_id);
       if (!i) return null;
       return html`<div class="trow" key=${x.item_id}>
-        <div class="grow"><div class="irow-title">${i.name}${i.size && html`<span class="size">${i.size}</span>`}</div><div class="irow-sub">${i.code && html`<span class="code">${i.code}</span>`}${i.kind === 'part' ? html`<span>${ownerText(i, idx)}</span>` : i.name_en && html`<span class="ltr-t">${i.name_en}</span>`}<span>عندنا ${i.qty}</span></div></div>
+        <div class="grow"><div class="irow-title">${i.name}${i.size && html`<span class="size">${i.size}</span>`}</div><div class="irow-sub">${i.kind === 'product' ? html`<span class="pn">${i.part_no}</span>` : i.code && html`<span class="code">${i.code}</span>`}${i.kind === 'part' ? html`<span>${ownerText(i, idx)}</span>` : i.name_en && html`<span class="ltr-t">${i.name_en}</span>`}<span>عندنا ${i.qty}</span></div>
+          ${i.kind === 'product' && html`<div class="unitcodes">${(s.units || []).filter((u) => u.item_id === i.id).map((u) => html`<span key=${u.id}>${u.code}${draft && html`<button aria-label="شيل" onClick=${() => run(() => call('shipment_remove_unit', { p_ship: id, p_unit: u.id }))}><${Icon} name="x" size=${13} /></button>`}</span>`)}</div>`}</div>
         ${draft ? html`<${Stepper} value=${x.qty} min=${0} max=${i.qty} onChange=${(v) => run(() => call('shipment_set_qty', { p_ship: id, p_item: i.id, p_qty: v }))} />` : html`<div class="qty"><b class="num">${x.qty}</b></div>`}
       </div>`;
     })}</div>`}
@@ -281,6 +289,12 @@ export function PackingListSheet({ id, close }) {
         const i = idx.items.get(x.item_id) || {};
         return { n: n + 1, code: i.part_no || i.code, name: en ? (i.name_en || i.name) : i.name, size: i.size || '—', qty: x.qty };
       });
+      /* أكواد قطع التصدير اللي في الشحنة (AF-ANG-001: 0001، 0002...) */
+      const serials = s.items.map((x) => {
+        const i = idx.items.get(x.item_id) || {};
+        const us = (s.units || []).filter((u) => u.item_id === x.item_id).map((u) => u.code);
+        return us.length ? { pn: i.part_no, sn: us.map((c) => c.slice(String(i.part_no || '').length + 1) || c).join(', ') } : null;
+      }).filter(Boolean);
       const meta = en
         ? [['Shipment No.', s.ref], ['Date', L.fmtDateEn(s.ship_date)], ['Customer', c.name || '—'], ['Country', c.country || '—'],
           ...(c.address ? [['Address', c.address]] : []),
@@ -295,13 +309,16 @@ export function PackingListSheet({ id, close }) {
       const base = safeName(`${s.ref} ${c.name || ''} packing list`);
       if (fmt === 'pdf') {
         const blob = await buildPdf({ dir: en ? 'ltr' : 'rtl', title: en ? 'PACKING LIST' : 'قائمة التعبئة (Packing List)', subtitle: en ? S.company_en : S.company_ar, meta, footer,
-          sections: [{ title: en ? 'Items' : 'الأصناف', columns: cols, rows, total: en ? `Total: ${total} pcs` : `الإجمالي: ${total} قطعة` }, ...(s.note ? [{ title: en ? 'Notes' : 'ملاحظات', columns: [{ key: 't', label: en ? 'Note' : 'ملاحظة', w: 1 }], rows: [{ t: s.note }] }] : [])],
+          sections: [{ title: en ? 'Items' : 'الأصناف', columns: cols, rows, total: en ? `Total: ${total} pcs` : `الإجمالي: ${total} قطعة` },
+            ...(serials.length ? [{ title: en ? 'Serial numbers' : 'أكواد القطع', columns: [{ key: 'pn', label: en ? 'Part No.' : 'رقم القطعة', w: 1.5 }, { key: 'sn', label: en ? 'Serial No.' : 'الأكواد', w: 6.4 }], rows: serials }] : []),
+            ...(s.note ? [{ title: en ? 'Notes' : 'ملاحظات', columns: [{ key: 't', label: en ? 'Note' : 'ملاحظة', w: 1 }], rows: [{ t: s.note }] }] : [])],
           signatures: en ? ['Prepared by', 'Checked by', 'Received by'] : ['جهّزها', 'راجعها', 'استلمها'] });
         setFile(fileFrom(blob, base + (en ? '' : ' AR') + '.pdf'));
       } else {
         const blob = buildXlsx([{ name: 'Packing List', rtl: !en, title: (en ? 'PACKING LIST — ' + S.company_en : 'قائمة التعبئة — ' + S.company_ar), meta,
           columns: cols.map((x) => ({ label: x.label, w: x.key === 'name' ? 36 : x.key === 'n' ? 5 : 16 })),
-          rows: [...rows.map((r) => [r.n, r.code, r.name, r.size, r.qty]), ['', '', '', en ? 'Total' : 'الإجمالي', total]] }]);
+          rows: [...rows.map((r) => [r.n, r.code, r.name, r.size, r.qty]), ['', '', '', en ? 'Total' : 'الإجمالي', total],
+            ...(serials.length ? [[], ['', en ? 'Serial numbers' : 'أكواد القطع'], ...serials.map((r) => ['', r.pn, r.sn])] : [])] }]);
         setFile(fileFrom(blob, base + (en ? '' : ' AR') + '.xlsx'));
       }
     } catch (e) { toast('مقدرتش أجهّز الملف: ' + errText(e), 'bad'); }

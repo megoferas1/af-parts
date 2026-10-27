@@ -1,14 +1,15 @@
 /* items.js — الحاجة نفسها: صفحتها، تسجيلها، دخول/خروج/جرد/تركيب، واختيار حاجات */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, toast, confirmBox, NumInput } from './ui.js?v=7';
-import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=7';
-import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=7';
-import * as L from './lib.js?v=7';
-import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=7';
-import { StickerSheet, labelFor } from './stickers.js?v=7';
-import { ScanSheet } from './qr.js?v=7';
-import { MoveRow } from './log.js?v=7';
-import { ShipmentForm } from './export.js?v=7';
-import { fmtMoney } from './docs.js?v=7';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, closeAllSheets, toast, confirmBox, NumInput } from './ui.js?v=8';
+import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=8';
+import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=8';
+import * as L from './lib.js?v=8';
+import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=8';
+import { StickerSheet, labelFor } from './stickers.js?v=8';
+import { ScanSheet } from './qr.js?v=8';
+import { MoveRow } from './log.js?v=8';
+import { ShipmentForm } from './export.js?v=8';
+import { fmtMoney } from './docs.js?v=8';
+import { UnitsBlock, MakeSheet, makeUnits, unitLabel } from './units.js?v=8';
 
 /* تنفيذ عملية + تحديث + رسالة */
 export async function run(fn, okMsg) {
@@ -74,7 +75,6 @@ export function ItemSheet({ id, close }) {
   const { idx } = useStore();
   const item = idx && idx.items.get(id);
   const [moves, setMoves] = useState(null);
-  const [busy, setBusy] = useState(false);
   const stamp = item ? item.updated_at + ':' + item.qty : '';
   useEffect(() => {
     if (!item) return;
@@ -91,21 +91,6 @@ export function ItemSheet({ id, close }) {
   const driver = item.driver_id && idx.drivers.get(item.driver_id);
   const trips = (idx.outTrips.get(item.id) || []);
 
-  async function onPhoto(e) {
-    const f = e.target.files && e.target.files[0];
-    e.target.value = '';
-    if (!f) return;
-    setBusy(true);
-    await run(() => uploadPhoto(item.id, f), 'الصورة اتحفظت');
-    setBusy(false);
-  }
-  async function del() {
-    const ok = await confirmBox({ title: 'مسح ' + item.name + '؟', text: 'هتتمسح بكل السجل بتاعها' + (item.code ? '، والاستيكر بتاعها يرجع فاضي' : '') + '. مفيش رجوع.', ok: 'امسح', danger: true });
-    if (!ok) return;
-    const r = await run(() => call('delete_item', { p_item: item.id }), 'اتمسحت');
-    if (r.ok) { if (r.r && r.r.delete) removePhotoFile(r.r.delete); close(); }
-  }
-
   const K = item.kind;
   return html`<${Sheet} title=${item.name} sub=${L.KIND[K].label} onClose=${close}>
     <div class="ihead">
@@ -113,7 +98,7 @@ export function ItemSheet({ id, close }) {
       <div class="grow">
         <div class="row wrap gap8">
           ${item.part_no && html`<span class="codechip pn">${item.part_no}</span>`}
-          ${item.code && html`<span class="codechip">${item.code}</span>`}
+          ${item.code && K !== 'product' && html`<span class="codechip">${item.code}</span>`}
           ${item.size && html`<${Pill} tone="dark">${item.size}<//>`}
           ${item.category && html`<${Pill}>${item.category}<//>`}
         </div>
@@ -130,7 +115,7 @@ export function ItemSheet({ id, close }) {
       ${out > 0 && html`<div class="istat"><span>برا في طلعة</span><b class="num">${out}</b></div>`}
       ${prep > 0 && html`<div class="istat"><span>محجوز لطلعة</span><b class="num">${prep}</b></div>`}
       ${ship > 0 && html`<div class="istat"><span>في شحنة</span><b class="num">${ship}</b></div>`}
-      <div class="istat"><span>الحالة</span><b><${Pill} tone=${cond.tone}>${cond.label}<//></b></div>
+      ${K !== 'product' && html`<div class="istat"><span>الحالة</span><b><${Pill} tone=${cond.tone}>${cond.label}<//></b></div>`}
       ${K === 'product' && canInvoice() && html`<div class="istat"><span>السعر</span><b class=${item.price == null ? 'soft' : 'num'}>${item.price == null ? 'لسه' : fmtMoney(item.price, item.price_cur, 'ar')}</b></div>`}
     </div>
     ${(item.location || item.note) && html`<div class="card soft-card">
@@ -139,17 +124,25 @@ export function ItemSheet({ id, close }) {
     </div>`}
     ${trips.length > 0 && html`<div class="note warn"><${Icon} name="truck" size=${18} /><span>${trips.map((t) => `${t.trip.name} (${t.qty})`).join('، ')}</span></div>`}
 
-    <div class="acts">
-      <${Act} icon="in" label=${L.IN_LABEL[K]} tone="green" onClick=${() => openSheet(MoveForm, { id, type: 'in' })} />
-      <${Act} icon="out" label="خروج" tone="red" disabled=${item.qty < 1} onClick=${() => openSheet(K === 'tool' ? MoveForm : OutChooser, { id, type: 'out' })} />
-      ${K === 'part' && html`<${Act} icon="wrench" label="تركيب" tone="dark" disabled=${item.qty < 1} onClick=${() => openSheet(InstallForm, { id })} />`}
-      <${Act} icon="list" label="جرد" onClick=${() => openSheet(MoveForm, { id, type: 'adjust' })} />
-      <${Act} icon="edit" label="تعديل" onClick=${() => openSheet(ItemForm, { id })} />
-      <label class=${'act ' + (busy ? 'disabled' : '')}><span class="act-ic">${busy ? html`<div class="spin sm"></div>` : html`<${Icon} name="camera" size=${24} />`}</span><span class="act-lb">${item.photo_path ? 'غيّر الصورة' : 'صورة'}</span>
-        <input type="file" accept="image/*" capture="environment" hidden onChange=${onPhoto} /></label>
-      ${item.code && html`<${Act} icon="printer" label="استيكر" onClick=${() => openSheet(StickerSheet, { labels: [labelFor(item, idx)], title: 'استيكر ' + item.code })} />`}
-      ${isAdmin() && html`<${Act} icon="trash" label="مسح" onClick=${del} />`}
-    </div>
+    ${K === 'product' ? html`<div class="acts a3 big">
+        <${Act} icon="plus" label="صنّعنا" tone="green" onClick=${() => openSheet(MakeSheet, { id })} />
+        <${Act} icon="globe" label="شحن" tone="dark" disabled=${item.qty < 1} onClick=${() => openSheet(ShipmentForm, { itemId: id })} />
+        <${Act} icon="plus" label="+1 قطعة" onClick=${() => makeUnits(item, 1)} />
+      </div>
+      <${SmallActs} id=${id} />
+      <${UnitsBlock} item=${item} />`
+    : K === 'part' ? html`<div class="acts a3 big">
+        <${Act} icon="wrench" label="تركيب" tone="dark" disabled=${item.qty < 1} onClick=${() => openSheet(InstallForm, { id })} />
+        <${Act} icon="out" label="خروج" tone="red" disabled=${item.qty < 1} onClick=${() => openSheet(OutChooser, { id, type: 'out' })} />
+        <${Act} icon="printer" label="استيكر" onClick=${() => openSheet(StickerSheet, { labels: [labelFor(item, idx)], title: 'استيكر ' + item.code, copies: true })} />
+      </div>
+      <${SmallActs} id=${id} />`
+    : html`<div class="acts a3 big">
+        <${Act} icon="in" label=${L.IN_LABEL[K]} tone="green" onClick=${() => openSheet(MoveForm, { id, type: 'in' })} />
+        <${Act} icon="out" label="خروج" tone="red" disabled=${item.qty < 1} onClick=${() => openSheet(MoveForm, { id, type: 'out' })} />
+        <${Act} icon="list" label="جرد" onClick=${() => openSheet(MoveForm, { id, type: 'adjust' })} />
+      </div>
+      <${SmallActs} id=${id} />`}
 
     <${SecTitle}>اللي حصل فيها<//>
     ${moves === null ? html`<${Spinner} />` : moves.length === 0 ? html`<${Empty} icon="history" text="لسه مفيش حركات" />`
@@ -157,11 +150,44 @@ export function ItemSheet({ id, close }) {
   <//>`;
 }
 
+/* باقي الأوامر: صف صغير ظاهر تحت الزراير الكبيرة */
+function SmallActs({ id }) {
+  const { idx } = useStore();
+  const item = idx.items.get(id);
+  const [busy, setBusy] = useState(false);
+  if (!item) return null;
+  const K = item.kind;
+  const go = (C, p) => openSheet(C, p);
+  async function onPhoto(e) {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    setBusy(true);
+    const r = await run(() => uploadPhoto(item.id, f), 'الصورة اتحفظت');
+    setBusy(false);
+  }
+  async function del() {
+    const ok = await confirmBox({ title: 'مسح ' + item.name + '؟', text: 'هتتمسح بكل السجل بتاعها' + (K === 'product' ? ' وأكواد قطعها' : item.code ? '، والاستيكر بتاعها يرجع فاضي' : '') + '. مفيش رجوع.', ok: 'امسح', danger: true });
+    if (!ok) return;
+    const r = await run(() => call('delete_item', { p_item: item.id }), 'اتمسحت');
+    if (r.ok) { if (r.r && r.r.delete) removePhotoFile(r.r.delete); closeAllSheets(); }
+  }
+  return html`<div class="acts small">
+      ${K === 'part' && html`<${Act} icon="in" label="دخول" tone="green" onClick=${() => go(MoveForm, { id, type: 'in' })} />`}
+      ${K === 'part' && html`<${Act} icon="list" label="جرد" onClick=${() => go(MoveForm, { id, type: 'adjust' })} />`}
+      <${Act} icon="edit" label="تعديل" onClick=${() => go(ItemForm, { id })} />
+      <label class=${'act ' + (busy ? 'disabled' : '')}><span class="act-ic">${busy ? html`<div class="spin sm"></div>` : html`<${Icon} name="camera" size=${24} />`}</span><span class="act-lb">${item.photo_path ? 'غيّر الصورة' : 'صورة'}</span>
+        <input type="file" accept="image/*" capture="environment" hidden onChange=${onPhoto} /></label>
+      ${K === 'tool' && item.code && html`<${Act} icon="printer" label="استيكر" onClick=${() => go(StickerSheet, { labels: [labelFor(item, idx)], title: 'استيكر ' + item.code, copies: true })} />`}
+      ${isAdmin() && html`<${Act} icon="trash" label="مسح" onClick=${del} />`}
+    </div>`;
+}
+
 /* ---------- تسجيل / تعديل حاجة ---------- */
 export function KindChooser({ code, onPick, close }) {
   return html`<${Sheet} title="دي إيه؟" sub=${code ? 'الاستيكر ' + code + ' لسه فاضي، سجّله' : 'اختار نوع الحاجة'} onClose=${close}>
     <div class="kinds">
-      ${(code ? ['part', 'garage', 'product'] : ['part', 'garage', 'tool', 'product']).map((k) => html`<button class=${'kindbtn k-' + k} onClick=${() => { close(); if (k === 'garage') onPick('part', { garage: true }); else onPick(k); }}>
+      ${(code ? ['part', 'garage'] : ['part', 'garage', 'tool', 'product']).map((k) => html`<button class=${'kindbtn k-' + k} onClick=${() => { close(); if (k === 'garage') onPick('part', { garage: true }); else onPick(k); }}>
         <span class="kindbtn-ic"><${Icon} name=${k === 'garage' ? 'home' : L.KIND[k].icon} size=${30} /></span>
         <span><b>${k === 'garage' ? 'قطعة بتاعة الجراش' : L.KIND[k].label}</b><small>${k === 'part' ? 'قطعة بتاعة سواق' : k === 'garage' ? 'قطعة ملك الجراش، مش لسواق' : k === 'tool' ? 'عدة، كراسي، خيام…' : 'حاجة بنصنّعها للتصدير'}</small></span>
       </button>`)}
@@ -248,16 +274,21 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
     setBusy(false);
     if (id) { toast('اتحفظ'); close(); return; }
     toast('اتسجلت ✓' + (res.part_no ? ' ' + res.part_no : res.code ? ' ' + res.code : ''));
+    /* منتج جديد بعدد: كل قطعة خدت كود، فاستيكراتهم تطلع على طول */
+    const newUnits = kind === 'product' ? (getStore().idx.unitsByItem.get(res.id) || []) : [];
+    const printUnits = () => { const it = getStore().idx.items.get(res.id); if (it && newUnits.length) openSheet(StickerSheet, { labels: newUnits.map((u) => unitLabel(u.code, it)), title: 'استيكرات ' + it.name }); };
     if (mode === 'again') {
       setF((x) => ({ ...x, name: '', name_en: '', size: '', qty: kind === 'product' ? 0 : 1, note: '', price: null,
         part_no: kind === 'product' ? nextPartNo(x.category || '') : '' }));
       setPhoto(null); setPreview('');
+      printUnits();
       return;
     }
     close();
     if (onCreated) { onCreated(res.id, f.qty); return; }
     if (mode === 'scan' && scanNext) { scanNext(); return; }
     openSheet(ItemSheet, { id: res.id });
+    printUnits();
   }
 
   const title = id ? 'تعديل ' + old.name : kind === 'part' && garage ? 'تسجيل قطعة للجراش' : 'تسجيل ' + L.KIND[kind].label;
@@ -296,6 +327,15 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
       ${newCat === null ? html`<button type="button" class="linkbtn" onClick=${() => setNewCat('')}>+ نوع جديد</button>`
         : html`<div class="row gap8"><input class="input" placeholder="اسم النوع" value=${newCat} onInput=${(e) => setNewCat(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter') addCat(); }} /><button type="button" class="btn sm" style="width:auto;padding:0 18px" onClick=${addCat}>ضيف</button></div>`}
     <//>
+    ${kind === 'product' && inv && html`<${Field} label="السعر" hint="ده السعر الثابت، وتقدر تغيّره في كل فاتورة">
+      <div class="row gap8">
+        <${NumInput} value=${f.price} onChange=${(v) => set('price', v)} placeholder="0.00" />
+        <div style="width:150px;flex:none"><${Segmented} value=${f.price_cur} onChange=${(v) => set('price_cur', v)} items=${[['USD', 'دولار'], ['EGP', 'جنيه']]} /></div>
+      </div><//>`}
+    <${Field} label=${kind === 'product' ? 'المقاس / الموديل' : 'المقاس / المواصفات'} hint="مثلاً: 8kg، 6 inch، 18×9.5، E36">
+      <input class="input" value=${f.size} onInput=${(e) => set('size', e.target.value)} /><//>
+    ${!id && html`<${Field} label=${kind === 'product' ? 'عندنا كام قطعة جاهزة دلوقتي؟' : 'العدد'} hint=${kind === 'product' ? 'كل قطعة هتاخد كود لوحدها واستيكرها هيطلعلك. لو لسه ما اتصنعش، سيبها 0' : ''}><${Stepper} value=${f.qty} min=${kind === 'product' ? 0 : 1} onChange=${(v) => set('qty', v)} big /><//>`}
+    <${SecTitle}>تفاصيل (اختياري)<//>
     ${kind === 'product' && html`<${Field} label="رقم القطعة (Part No.)" hint=${id ? 'بيظهر في الفاتورة والـ Packing List' : 'الابلكيشن بيعمله لوحده من نوع المنتج: اختار النوع وهو يتظبط، أو غيّره بإيدك'}>
       <div class="row gap8">
         <input class="input ltr" value=${f.part_no} placeholder="AF-ENG-001" onInput=${(e) => { setPnAuto(false); set('part_no', e.target.value.toUpperCase()); }} />
@@ -305,14 +345,6 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
         <span class="grow">النوع "${f.category}" ملوش اختصار، فالرقم طالع GEN. اكتب اختصار إنجليزي ليه (زي ENG):</span>
         <input class="input ltr abbr" maxlength="6" value=${newAbbr} onInput=${(e) => setNewAbbr(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} />
         <button type="button" class="btn sm" style="width:auto;padding:0 14px" onClick=${saveAbbr}>حفظ</button></div>`}<//>`}
-    ${kind === 'product' && inv && html`<${Field} label="السعر" hint="ده السعر الثابت، وتقدر تغيّره في كل فاتورة">
-      <div class="row gap8">
-        <${NumInput} value=${f.price} onChange=${(v) => set('price', v)} placeholder="0.00" />
-        <div style="width:150px;flex:none"><${Segmented} value=${f.price_cur} onChange=${(v) => set('price_cur', v)} items=${[['USD', 'دولار'], ['EGP', 'جنيه']]} /></div>
-      </div><//>`}
-    <${Field} label=${kind === 'product' ? 'المقاس / الموديل' : 'المقاس / المواصفات'} hint="مثلاً: 8kg، 6 inch، 18×9.5، E36">
-      <input class="input" value=${f.size} onInput=${(e) => set('size', e.target.value)} /><//>
-    ${!id && html`<${Field} label=${kind === 'product' ? 'العدد اللي عندنا دلوقتي' : 'العدد'}><${Stepper} value=${f.qty} min=${kind === 'product' ? 0 : 1} onChange=${(v) => set('qty', v)} big /><//>`}
     ${kind !== 'product' && html`<${Field} label="الحالة">
       <${Chips} items=${Object.entries(L.COND).map(([k, v]) => [k, v.label])} value=${f.condition} onChange=${(v) => set('condition', v)} /><//>`}
     <${Field} label="مكانها في الجراش">
