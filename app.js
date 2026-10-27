@@ -1,14 +1,15 @@
 /* app.js — نقطة البداية: الدخول والتابات */
-import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=4';
-import { SUPABASE_URL } from './config.js?v=4';
-import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=4';
-import { useStore, reload, resetStore, getStore } from './store.js?v=4';
-import { HomeTab } from './home.js?v=4';
-import { DriversTab } from './drivers.js?v=4';
-import { ToolsTab } from './tools.js?v=4';
-import { ExportTab } from './export.js?v=4';
-import { TripsTab } from './trips.js?v=4';
-import { ItemSheet, startNewItem } from './items.js?v=4';
+import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=6';
+import { SUPABASE_URL } from './config.js?v=6';
+import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=6';
+import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=6';
+import { HomeTab } from './home.js?v=6';
+import { DriversTab } from './drivers.js?v=6';
+import { ToolsTab } from './tools.js?v=6';
+import { ExportTab } from './export.js?v=6';
+import { TripsTab } from './trips.js?v=6';
+import { InvoicesTab } from './invoices.js?v=6';
+import { ItemSheet, startNewItem } from './items.js?v=6';
 
 /* لو حصل خطأ غير متوقع نعرضه بدل شاشة بيضا */
 function showFatal(msg) {
@@ -130,6 +131,7 @@ function Main({ onLogout }) {
     { id: 'tools', icon: 'wrench', label: 'العدة' },
     { id: 'export', icon: 'globe', label: 'التصدير', badge: drafts },
     { id: 'trips', icon: 'flag', label: 'الطلعات', badge: active },
+    ...(canInvoice() ? [{ id: 'invoices', icon: 'file', label: 'الفواتير' }] : []),
   ];
   return html`<div class="app">
     ${tab === 'home' && html`<${HomeTab} onGo=${setTab} onLogout=${onLogout} />`}
@@ -137,6 +139,7 @@ function Main({ onLogout }) {
     ${tab === 'tools' && html`<${ToolsTab} />`}
     ${tab === 'export' && html`<${ExportTab} />`}
     ${tab === 'trips' && html`<${TripsTab} />`}
+    ${tab === 'invoices' && canInvoice() && html`<${InvoicesTab} />`}
     <${BottomNav} items=${nav} tab=${tab} onGo=${setTab} />
   </div>`;
 }

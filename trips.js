@@ -1,14 +1,14 @@
 /* trips.js — الطلعات: سباق / تمرين / طلعة تانية */
-import { html, useState, Icon, Pill, Empty, Field, Chips, Stepper, Segmented, Sheet, SecTitle, Hero, openSheet, toast, confirmBox, Spinner } from './ui.js?v=4';
-import { call, errText } from './api.js?v=4';
-import { useStore, getStore, reload, ownerText } from './store.js?v=4';
-import * as L from './lib.js?v=4';
-import { ItemSheet, ItemPicker, OldPartFields, Thumb, run, groupBy, startNewItem } from './items.js?v=4';
-import { TemplatesSheet, TemplateForm } from './tools.js?v=4';
-import { ScanSheet } from './qr.js?v=4';
-import { FileReady } from './stickers.js?v=4';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=4';
-import { HeroScan } from './home.js?v=4';
+import { html, useState, Icon, Pill, Empty, Field, Chips, Stepper, Segmented, Sheet, SecTitle, Hero, openSheet, toast, confirmBox, Spinner } from './ui.js?v=6';
+import { call, errText } from './api.js?v=6';
+import { useStore, getStore, reload, ownerText } from './store.js?v=6';
+import * as L from './lib.js?v=6';
+import { ItemSheet, ItemPicker, OldPartFields, Thumb, run, groupBy, startNewItem } from './items.js?v=6';
+import { TemplatesSheet, TemplateForm } from './tools.js?v=6';
+import { ScanSheet } from './qr.js?v=6';
+import { FileReady } from './stickers.js?v=6';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=6';
+import { HeroScan } from './home.js?v=6';
 
 const okOf = (x) => x.qty - x.damaged - x.installed - x.used - x.lost;
 
@@ -105,7 +105,7 @@ export function tripGroups(items, idx) {
   groupBy(tools, (x) => it(x).category, idx.cats.tool, nm).forEach(([cat, xs]) => g.push([cat, xs]));
   const byDrv = new Map();
   items.forEach((x) => { const i = it(x); if (i.kind === 'part') { if (!byDrv.has(i.driver_id)) byDrv.set(i.driver_id, []); byDrv.get(i.driver_id).push(x); } });
-  byDrv.forEach((xs, did) => g.push(['قطع ' + ((idx.drivers.get(did) || {}).name || ''), xs.sort((a, b) => L.cmpName(nm(a), nm(b)))]));
+  byDrv.forEach((xs, did) => g.push([did ? 'قطع ' + ((idx.drivers.get(did) || {}).name || '') : 'قطع الجراش', xs.sort((a, b) => L.cmpName(nm(a), nm(b)))]));
   const prods = items.filter((x) => it(x).kind === 'product').sort((a, b) => L.cmpName(nm(a), nm(b)));
   if (prods.length) g.push(['منتجات', prods]);
   return g;

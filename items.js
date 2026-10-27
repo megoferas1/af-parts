@@ -1,13 +1,14 @@
 /* items.js — الحاجة نفسها: صفحتها، تسجيلها، دخول/خروج/جرد/تركيب، واختيار حاجات */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, toast, confirmBox } from './ui.js?v=4';
-import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=4';
-import { useStore, getStore, reload, ownerText, isAdmin } from './store.js?v=4';
-import * as L from './lib.js?v=4';
-import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=4';
-import { StickerSheet, labelFor } from './stickers.js?v=4';
-import { ScanSheet } from './qr.js?v=4';
-import { MoveRow } from './log.js?v=4';
-import { ShipmentForm } from './export.js?v=4';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, toast, confirmBox, NumInput } from './ui.js?v=6';
+import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=6';
+import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=6';
+import * as L from './lib.js?v=6';
+import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=6';
+import { StickerSheet, labelFor } from './stickers.js?v=6';
+import { ScanSheet } from './qr.js?v=6';
+import { MoveRow } from './log.js?v=6';
+import { ShipmentForm } from './export.js?v=6';
+import { fmtMoney } from './docs.js?v=6';
 
 /* تنفيذ عملية + تحديث + رسالة */
 export async function run(fn, okMsg) {
@@ -40,7 +41,8 @@ export function ItemRow({ item, onClick, showOwner = true, right, extra }) {
     <div class="grow irow-main">
       <div class="irow-title">${item.name}${item.size && html`<span class="size">${item.size}</span>`}</div>
       <div class="irow-sub">
-        ${item.code && html`<span class="code">${item.code}</span>`}
+        ${item.part_no && html`<span class="pn">${item.part_no}</span>`}
+        ${item.code && !item.part_no && html`<span class="code">${item.code}</span>`}
         ${showOwner && item.kind === 'part' && html`<span>${ownerText(item, idx)}</span>`}
         ${item.kind !== 'part' && item.category && html`<span>${item.category}</span>`}
         ${item.location && html`<span>📍 ${item.location}</span>`}
@@ -110,12 +112,14 @@ export function ItemSheet({ id, close }) {
       ${item.photo_path ? html`<img class="iphoto" src=${photoUrl(item.photo_path)} alt="" />` : html`<${Thumb} item=${item} size="lg" />`}
       <div class="grow">
         <div class="row wrap gap8">
+          ${item.part_no && html`<span class="codechip pn">${item.part_no}</span>`}
           ${item.code && html`<span class="codechip">${item.code}</span>`}
           ${item.size && html`<${Pill} tone="dark">${item.size}<//>`}
           ${item.category && html`<${Pill}>${item.category}<//>`}
         </div>
-        ${K === 'part' ? html`<button class="ownerlink" onClick=${() => driver && openSheet(DriverSheet, { id: driver.id })}>
+        ${K === 'part' && driver ? html`<button class="ownerlink" onClick=${() => openSheet(DriverSheet, { id: driver.id })}>
             <${Icon} name="user" size=${16} />${ownerText(item, idx)}</button>`
+          : K === 'part' ? html`<div class="owner"><${Icon} name="home" size=${16} />ملك الجراش</div>`
           : html`<div class="owner"><${Icon} name=${K === 'tool' ? 'wrench' : 'globe'} size=${16} />${ownerText(item, idx)}</div>`}
         ${K === 'product' && item.name_en && html`<div class="soft ltr-t">${item.name_en}</div>`}
       </div>
@@ -127,6 +131,7 @@ export function ItemSheet({ id, close }) {
       ${prep > 0 && html`<div class="istat"><span>محجوز لطلعة</span><b class="num">${prep}</b></div>`}
       ${ship > 0 && html`<div class="istat"><span>في شحنة</span><b class="num">${ship}</b></div>`}
       <div class="istat"><span>الحالة</span><b><${Pill} tone=${cond.tone}>${cond.label}<//></b></div>
+      ${K === 'product' && canInvoice() && html`<div class="istat"><span>السعر</span><b class=${item.price == null ? 'soft' : 'num'}>${item.price == null ? 'لسه' : fmtMoney(item.price, item.price_cur, 'ar')}</b></div>`}
     </div>
     ${(item.location || item.note) && html`<div class="card soft-card">
       ${item.location && html`<div class="row gap8"><${Icon} name="pin" size=${18} /><span>مكانها: <b>${item.location}</b></span></div>`}
@@ -156,9 +161,9 @@ export function ItemSheet({ id, close }) {
 export function KindChooser({ code, onPick, close }) {
   return html`<${Sheet} title="دي إيه؟" sub=${code ? 'الاستيكر ' + code + ' لسه فاضي، سجّله' : 'اختار نوع الحاجة'} onClose=${close}>
     <div class="kinds">
-      ${(code ? ['part', 'product'] : ['part', 'tool', 'product']).map((k) => html`<button class=${'kindbtn k-' + k} onClick=${() => { close(); onPick(k); }}>
-        <span class="kindbtn-ic"><${Icon} name=${L.KIND[k].icon} size=${30} /></span>
-        <span><b>${L.KIND[k].label}</b><small>${k === 'part' ? 'قطعة بتاعة سواق' : k === 'tool' ? 'عدة، كراسي، خيام…' : 'حاجة بنصنّعها للتصدير'}</small></span>
+      ${(code ? ['part', 'garage', 'product'] : ['part', 'garage', 'tool', 'product']).map((k) => html`<button class=${'kindbtn k-' + k} onClick=${() => { close(); if (k === 'garage') onPick('part', { garage: true }); else onPick(k); }}>
+        <span class="kindbtn-ic"><${Icon} name=${k === 'garage' ? 'home' : L.KIND[k].icon} size=${30} /></span>
+        <span><b>${k === 'garage' ? 'قطعة بتاعة الجراش' : L.KIND[k].label}</b><small>${k === 'part' ? 'قطعة بتاعة سواق' : k === 'garage' ? 'قطعة ملك الجراش، مش لسواق' : k === 'tool' ? 'عدة، كراسي، خيام…' : 'حاجة بنصنّعها للتصدير'}</small></span>
       </button>`)}
     </div>
   <//>`;
@@ -167,7 +172,7 @@ export function KindChooser({ code, onPick, close }) {
 /* افتح التسجيل: لو النوع مش معروف نسأل الأول */
 export function startNewItem(opts = {}) {
   if (opts.kind) return openSheet(ItemForm, opts);
-  openSheet(KindChooser, { code: opts.code, onPick: (kind) => openSheet(ItemForm, { ...opts, kind }) });
+  openSheet(KindChooser, { code: opts.code, onPick: (kind, extra) => openSheet(ItemForm, { ...opts, kind, preset: { ...(opts.preset || {}), ...(extra || {}) } }) });
 }
 
 export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, close }) {
@@ -175,10 +180,20 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
   const old = id ? idx.items.get(id) : null;
   const kind = old ? old.kind : kindIn || 'part';
   const P = preset || {};
-  const [f, setF] = useState(() => old ? { ...old } : {
+  const [f, setF] = useState(() => old ? { ...old, part_no: old.part_no || '', price: old.price == null ? null : Number(old.price), price_cur: old.price_cur || 'USD' } : {
     name: '', name_en: '', category: P.category || '', size: '', driver_id: P.driver_id || '', car_id: P.car_id || '',
-    qty: 1, condition: kind === 'product' ? 'new' : 'used', location: P.location || '', note: '',
+    qty: kind === 'product' ? 0 : 1, condition: kind === 'product' ? 'new' : 'used', location: P.location || '', note: '',
+    part_no: kind === 'product' ? nextPartNo(P.category || '') : '', price: null, price_cur: 'USD',
   });
+  const [pnAuto, setPnAuto] = useState(!old);
+  const [garage, setGarage] = useState(old ? old.kind === 'part' && !old.driver_id : !!P.garage);
+  const [newAbbr, setNewAbbr] = useState('');
+  async function saveAbbr() {
+    if (!newAbbr) return toast('اكتب الاختصار', 'bad');
+    const r = await run(() => call('set_category_abbr', { p_kind: 'product', p_name: f.category, p_abbr: newAbbr }), 'اتحفظ الاختصار');
+    if (r.ok) { setNewAbbr(''); if (pnAuto) setF((x) => ({ ...x, part_no: nextPartNo(x.category, id) })); }
+  }
+  const inv = canInvoice();
   const [photo, setPhoto] = useState(null);
   const [preview, setPreview] = useState('');
   const [busy, setBusy] = useState(false);
@@ -195,6 +210,8 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
     setPhoto(file); setPreview(URL.createObjectURL(file));
   }
   function onDriver(v) {
+    if (v === '__garage') { setGarage(true); setF((x) => ({ ...x, driver_id: '', car_id: '' })); return; }
+    setGarage(false);
     if (v === '__new') return openSheet(DriverForm, { onSaved: (did) => setF((x) => ({ ...x, driver_id: did, car_id: '' })) });
     setF((x) => ({ ...x, driver_id: v, car_id: '' }));
   }
@@ -212,23 +229,28 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
 
   async function save(mode) {
     if (!f.name.trim()) return toast('اكتب اسم الحاجة', 'bad');
-    if (kind === 'part' && !f.driver_id) return toast('اختار السواق صاحب القطعة', 'bad');
+    if (kind === 'part' && !f.driver_id && !garage) return toast('اختار صاحب القطعة: سواق ولا الجراش', 'bad');
     setBusy(true);
-    const body = { kind, name: f.name, name_en: f.name_en, category: f.category, size: f.size, driver_id: f.driver_id || null,
+    const body = { kind, name: f.name, name_en: f.name_en, category: f.category, size: f.size, driver_id: garage ? null : f.driver_id || null,
       car_id: f.car_id || null, qty: f.qty, condition: f.condition, location: f.location, note: f.note, code: id ? undefined : code };
+    if (kind === 'product') body.part_no = (f.part_no || '').trim();
     let res;
     try {
       res = await call('save_item', { p_id: id || null, p: body });
     } catch (e) { setBusy(false); return toast(errText(e), 'bad'); }
+    if (kind === 'product' && inv && (!old || Number(old.price) !== Number(f.price) || (old.price == null) !== (f.price == null) || old.price_cur !== f.price_cur)) {
+      try { await call('set_item_price', { p_item: res.id, p_price: f.price, p_cur: f.price_cur }); } catch (e) { toast('اتحفظ، بس السعر ما اتحفظش: ' + errText(e), 'bad'); }
+    }
     if (photo) {
       try { await uploadPhoto(res.id, photo); } catch (e) { toast('اتسجلت، بس الصورة ما اترفعتش', 'bad'); }
     }
     await reload().catch(() => {});
     setBusy(false);
     if (id) { toast('اتحفظ'); close(); return; }
-    toast('اتسجلت ✓' + (res.code ? ' ' + res.code : ''));
+    toast('اتسجلت ✓' + (res.part_no ? ' ' + res.part_no : res.code ? ' ' + res.code : ''));
     if (mode === 'again') {
-      setF((x) => ({ ...x, name: '', name_en: '', size: '', qty: 1, note: '' }));
+      setF((x) => ({ ...x, name: '', name_en: '', size: '', qty: kind === 'product' ? 0 : 1, note: '', price: null,
+        part_no: kind === 'product' ? nextPartNo(x.category || '') : '' }));
       setPhoto(null); setPreview('');
       return;
     }
@@ -238,7 +260,7 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
     openSheet(ItemSheet, { id: res.id });
   }
 
-  const title = id ? 'تعديل ' + old.name : 'تسجيل ' + L.KIND[kind].label;
+  const title = id ? 'تعديل ' + old.name : kind === 'part' && garage ? 'تسجيل قطعة للجراش' : 'تسجيل ' + L.KIND[kind].label;
   return html`<${Sheet} title=${title} sub=${id ? (old.code || L.KIND[kind].label) : code ? 'الكود: ' + code + ' (من الاستيكر)' : kind === 'tool' ? 'العدة من غير كود' : 'هتاخد كود جديد أوتوماتيك'} onClose=${close}
     footer=${html`<div class="stack">
       <button class="btn bigbtn" disabled=${busy} onClick=${() => save('open')}>${busy ? 'لحظة...' : html`<${Icon} name="check" size=${22} /> حفظ`}</button>
@@ -247,9 +269,10 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
     </div>`}>
 
     ${kind === 'part' && html`
-      <${Field} label="صاحبها (السواق)" req>
-        <select class="input" value=${f.driver_id} onChange=${(e) => onDriver(e.target.value)}>
-          <option value="">— اختار السواق —</option>
+      <${Field} label="صاحبها" req>
+        <select class="input" value=${garage ? '__garage' : f.driver_id} onChange=${(e) => onDriver(e.target.value)}>
+          <option value="">— اختار —</option>
+          <option value="__garage">ملك الجراش (مش لسواق)</option>
           ${getStore().data.drivers.map((d) => html`<option value=${d.id}>${d.name}</option>`)}
           <option value="__new">+ سواق جديد</option>
         </select><//>
@@ -266,13 +289,30 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
       <input class="input ltr" value=${f.name_en} placeholder="e.g. Control Arm" onInput=${(e) => set('name_en', e.target.value)} /><//>`}
 
     <${Field} label="النوع">
-      <${Chips} items=${[...cats, ...(f.category && !cats.includes(f.category) ? [f.category] : [])]} value=${f.category} onChange=${(v) => set('category', f.category === v ? '' : v)} />
+      <${Chips} items=${[...cats, ...(f.category && !cats.includes(f.category) ? [f.category] : [])]} value=${f.category} onChange=${(v) => {
+        const c = f.category === v ? '' : v;
+        setF((x) => ({ ...x, category: c, part_no: kind === 'product' && pnAuto ? nextPartNo(c, id) : x.part_no }));
+      }} />
       ${newCat === null ? html`<button type="button" class="linkbtn" onClick=${() => setNewCat('')}>+ نوع جديد</button>`
         : html`<div class="row gap8"><input class="input" placeholder="اسم النوع" value=${newCat} onInput=${(e) => setNewCat(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter') addCat(); }} /><button type="button" class="btn sm" style="width:auto;padding:0 18px" onClick=${addCat}>ضيف</button></div>`}
     <//>
+    ${kind === 'product' && html`<${Field} label="رقم القطعة (Part No.)" hint=${id ? 'بيظهر في الفاتورة والـ Packing List' : 'الابلكيشن بيعمله لوحده من نوع المنتج: اختار النوع وهو يتظبط، أو غيّره بإيدك'}>
+      <div class="row gap8">
+        <input class="input ltr" value=${f.part_no} placeholder="AF-ENG-001" onInput=${(e) => { setPnAuto(false); set('part_no', e.target.value.toUpperCase()); }} />
+        <button type="button" class="btn ghost sm" style="width:auto;padding:0 14px" onClick=${() => { setPnAuto(true); set('part_no', nextPartNo(f.category, id)); }}>اقترح</button>
+      </div>
+      ${f.category && !idx.abbr.get('product:' + f.category) && html`<div class="abbrfix">
+        <span class="grow">النوع "${f.category}" ملوش اختصار، فالرقم طالع GEN. اكتب اختصار إنجليزي ليه (زي ENG):</span>
+        <input class="input ltr abbr" maxlength="6" value=${newAbbr} onInput=${(e) => setNewAbbr(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} />
+        <button type="button" class="btn sm" style="width:auto;padding:0 14px" onClick=${saveAbbr}>حفظ</button></div>`}<//>`}
+    ${kind === 'product' && inv && html`<${Field} label="السعر" hint="ده السعر الثابت، وتقدر تغيّره في كل فاتورة">
+      <div class="row gap8">
+        <${NumInput} value=${f.price} onChange=${(v) => set('price', v)} placeholder="0.00" />
+        <div style="width:150px;flex:none"><${Segmented} value=${f.price_cur} onChange=${(v) => set('price_cur', v)} items=${[['USD', 'دولار'], ['EGP', 'جنيه']]} /></div>
+      </div><//>`}
     <${Field} label=${kind === 'product' ? 'المقاس / الموديل' : 'المقاس / المواصفات'} hint="مثلاً: 8kg، 6 inch، 18×9.5، E36">
       <input class="input" value=${f.size} onInput=${(e) => set('size', e.target.value)} /><//>
-    ${!id && html`<${Field} label="العدد"><${Stepper} value=${f.qty} min=${1} onChange=${(v) => set('qty', v)} big /><//>`}
+    ${!id && html`<${Field} label=${kind === 'product' ? 'العدد اللي عندنا دلوقتي' : 'العدد'}><${Stepper} value=${f.qty} min=${kind === 'product' ? 0 : 1} onChange=${(v) => set('qty', v)} big /><//>`}
     ${kind !== 'product' && html`<${Field} label="الحالة">
       <${Chips} items=${Object.entries(L.COND).map(([k, v]) => [k, v.label])} value=${f.condition} onChange=${(v) => set('condition', v)} /><//>`}
     <${Field} label="مكانها في الجراش">
@@ -299,7 +339,7 @@ export function OutChooser({ id, close }) {
   const opts = K === 'part' ? [
     ['install', 'wrench', 'تركيب', 'اتركبت على عربية السواق، وتسجّل القديمة اللي طلعت', () => go(InstallForm, { id })],
     ['ship', 'globe', 'شحن', 'هتتشحن لصاحبها أو لحد تاني، وبتتسجل في الشحنات', () => go(ShipmentForm, { itemId: id })],
-    ['owner', 'user', 'صاحبها خدها', driver ? driver.name + ' خدها من الجراش' : 'السواق خدها من الجراش', () => go(MoveForm, { id, type: 'out', preset: 'صاحبها خدها' })],
+    ...(driver ? [['owner', 'user', 'صاحبها خدها', driver.name + ' خدها من الجراش', () => go(MoveForm, { id, type: 'out', preset: 'صاحبها خدها' })]] : []),
   ] : [
     ['ship', 'globe', 'شحن لعميل', 'بتتسجل في الشحنات وتطلعلها Packing List', () => go(ShipmentForm, { itemId: id })],
   ];
@@ -393,9 +433,13 @@ export function InstallForm({ id, close }) {
   const [old, setOld] = useState({ mode: '' });
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const [drv, setDrv] = useState('');
   if (!item) return null;
-  const cars = idx.carsByDriver.get(item.driver_id) || [];
+  const garage = !item.driver_id;                         // قطعة الجراش بتتركب على عربية أي سواق
+  const owner = garage ? drv : item.driver_id;
+  const cars = owner ? idx.carsByDriver.get(owner) || [] : [];
   async function save() {
+    if (garage && !drv) return toast('اختار السواق اللي هتتركب على عربيته', 'bad');
     if (!car) return toast('اختار العربية', 'bad');
     if (!old.mode) return toast('قول القطعة القديمة راحت فين', 'bad');
     setBusy(true);
@@ -407,11 +451,14 @@ export function InstallForm({ id, close }) {
   return html`<${Sheet} title="تركيب على العربية" sub=${L.bidi(item.name, item.size, item.code)} onClose=${close}
     footer=${html`<button class="btn bigbtn dark" disabled=${busy} onClick=${save}><${Icon} name="wrench" size=${22} /> ${busy ? 'لحظة...' : 'اتركبت'}</button>`}>
     ${item.qty > 1 && html`<${Field} label="كام واحدة اتركبت؟"><${Stepper} value=${qty} min=${1} max=${item.qty} onChange=${setQty} big /><//>`}
-    <${Field} label="على أنهي عربية؟" req>
+    ${garage && html`<${Field} label="هتتركب لمين؟" req hint="القطعة دي ملك الجراش، وهتتسجل في كشف السواق ده">
+      <select class="input" value=${drv} onChange=${(e) => { setDrv(e.target.value); setCar(''); }}>
+        <option value="">— اختار السواق —</option>${getStore().data.drivers.map((d) => html`<option value=${d.id}>${d.name}</option>`)}</select><//>`}
+    ${owner && html`<${Field} label="على أنهي عربية؟" req>
       ${cars.length ? html`<${Chips} items=${cars.map((c) => [c.id, c.name])} value=${car} onChange=${setCar} />`
         : html`<div class="hint">السواق ده لسه ملوش عربيات متسجلة</div>`}
-      <button type="button" class="linkbtn" onClick=${() => openSheet(CarForm, { driverId: item.driver_id, onSaved: setCar })}>+ عربية جديدة</button>
-    <//>
+      <button type="button" class="linkbtn" onClick=${() => openSheet(CarForm, { driverId: owner, onSaved: setCar })}>+ عربية جديدة</button>
+    <//>`}
     <${OldPartFields} value=${old} onChange=${setOld} maxQty=${qty} src=${item} />
     <${Field} label="ملاحظة (اختياري)"><input class="input" value=${note} onInput=${(e) => setNote(e.target.value)} /><//>
   <//>`;
@@ -428,7 +475,7 @@ export function ItemPicker({ title, kinds = ['part', 'tool', 'product'], limit, 
   const maxOf = (i) => (limit ? limit(i) : i.qty);
   const list = useMemo(() => {
     let arr = idx.kinds[kind] || [];
-    if (kind === 'part' && drv) arr = arr.filter((i) => i.driver_id === drv);
+    if (kind === 'part' && drv) arr = arr.filter((i) => (drv === '__garage' ? !i.driver_id : i.driver_id === drv));
     if (q) arr = arr.filter((i) => L.matches(idx.hay.get(i.id), q));
     if (exclude) arr = arr.filter((i) => !exclude(i));
     return arr.slice().sort((a, b) => (maxOf(b) > 0) - (maxOf(a) > 0) || L.cmpName(a.name, b.name));
@@ -446,7 +493,7 @@ export function ItemPicker({ title, kinds = ['part', 'tool', 'product'], limit, 
     footer=${html`<button class="btn bigbtn" disabled=${busy || sel.size === 0} onClick=${done}>${busy ? 'لحظة...' : `${doneLabel} (${sel.size} حاجة · ${total} قطعة)`}</button>`}>
     ${kinds.length > 1 && html`<${Segmented} value=${kind} onChange=${setKind} items=${kinds.map((k) => [k, L.KIND[k].plural])} />`}
     ${kind === 'part' && html`<select class="input" value=${drv} onChange=${(e) => setDrv(e.target.value)}>
-      <option value="">كل السواقين</option>${data.drivers.map((d) => html`<option value=${d.id}>${d.name}</option>`)}</select>`}
+      <option value="">كل القطع</option><option value="__garage">قطع الجراش</option>${data.drivers.map((d) => html`<option value=${d.id}>${d.name}</option>`)}</select>`}
     <${SearchBox} value=${q} onChange=${setQ} placeholder="دوّر بالاسم أو المقاس أو الكود" />
     ${list.length === 0 ? html`<${Empty} icon="search" text="مفيش حاجات هنا" />` : html`<div class="card tight">
       ${list.map((i) => {

@@ -1,5 +1,5 @@
 /* api.js — الاتصال بـ Supabase */
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=4';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=6';
 
 if (!window.supabase) throw new Error('مكتبة Supabase ما اتحمّلتش (cdn.jsdelivr.net)');
 export const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -67,6 +67,14 @@ const MSG = {
   shipment_empty: 'الشحنة فاضية',
   not_product: 'الشحنات للمنتجات والقطع بس',
   bad_kind: 'الحاجة دي مينفعش تتشحن',
+  part_no_used: 'رقم القطعة ده متسجل على منتج تاني',
+  invoice_only: 'الفواتير للإدارة بس، أو للي الإدارة اديته الصلاحية',
+  bill_required: 'اكتب اسم العميل',
+  invoice_empty: 'ضيف بند واحد على الأقل',
+  bad_price: 'السعر غلط',
+  bad_tax: 'نسبة الضريبة غلط',
+  bad_abbr: 'الاختصار من 1 لـ 6 حروف إنجليزي',
+  bad_currency: 'العملة غلط',
   bad_pin: 'الرقم السري لازم يكون من 4 لـ 8 أرقام',
   bad_ticket: 'الصورة ما اترفعتش، جرّب تاني',
   not_found: 'مش لاقيينها، يمكن اتمسحت',

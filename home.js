@@ -1,15 +1,15 @@
 /* home.js — الرئيسية + السكان العام + البحث */
-import { html, useState, useEffect, useMemo, Icon, Empty, Spinner, SearchBox, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=4';
-import { call, errText } from './api.js?v=4';
-import { useStore, getStore, isAdmin } from './store.js?v=4';
-import * as L from './lib.js?v=4';
-import { ItemRow, ItemSheet, startNewItem } from './items.js?v=4';
-import { ScanSheet } from './qr.js?v=4';
-import { TripCard } from './trips.js?v=4';
-import { BlankStickersSheet } from './stickers.js?v=4';
-import { LogSheet, MoveRow } from './log.js?v=4';
-import { DriverSheet } from './drivers.js?v=4';
-import { AdminSheet } from './admin.js?v=4';
+import { html, useState, useEffect, useMemo, Icon, Empty, Spinner, SearchBox, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=6';
+import { call, errText } from './api.js?v=6';
+import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=6';
+import * as L from './lib.js?v=6';
+import { ItemRow, ItemSheet, startNewItem } from './items.js?v=6';
+import { ScanSheet } from './qr.js?v=6';
+import { TripCard } from './trips.js?v=6';
+import { BlankStickersSheet } from './stickers.js?v=6';
+import { LogSheet, MoveRow } from './log.js?v=6';
+import { DriverSheet } from './drivers.js?v=6';
+import { AdminSheet } from './admin.js?v=6';
 
 /* السكان العام: يفتح الحاجة، أو يسجّل استيكر فاضي */
 export function scanOpen() {
@@ -35,13 +35,6 @@ export const HeroScan = () => html`<button class="iconbtn scanbtn" onClick=${sca
 export function HomeTab({ onGo, onLogout }) {
   const { data, idx } = useStore();
   const [q, setQ] = useState('');
-  const [recent, setRecent] = useState(null);
-  const stamp = data.items.length + ':' + data.items.reduce((m, i) => (i.updated_at > m ? i.updated_at : m), '');
-  useEffect(() => {
-    let off = false;
-    call('moves_list', { p: { limit: 6 } }).then((r) => { if (!off) setRecent(r); }).catch(() => { if (!off) setRecent([]); });
-    return () => { off = true; };
-  }, [stamp]);
 
   const results = useMemo(() => {
     if (!q.trim()) return null;
@@ -57,6 +50,7 @@ export function HomeTab({ onGo, onLogout }) {
     ['tools', 'wrench', 'العدة', `${idx.kinds.tool.length} حاجة`, 'dark'],
     ['export', 'globe', 'التصدير', `${sumQ(idx.kinds.product)} قطعة متخزنة`, 'gray'],
     ['trips', 'flag', 'الطلعات', active.length ? `${active.length} شغالة دلوقتي` : 'سباقات وتمرينات', 'amber'],
+    ...(canInvoice() ? [['invoices', 'file', 'الفواتير والأسعار', `${data.invoices.filter((v) => !v.paid).length} لسه ما اتدفعتش`, 'green']] : []),
   ];
   const me = data.me;
   return html`
@@ -72,17 +66,29 @@ export function HomeTab({ onGo, onLogout }) {
         ${results.items.length === 0 ? html`<${Empty} icon="search" text="مفيش حاجة بالاسم ده" />` : html`<div class="card tight">${results.items.map((i) => html`<${ItemRow} item=${i} key=${i.id} />`)}</div>`}`
       : html`
         <button class="btn bigbtn scanbig" onClick=${scanOpen}><${Icon} name="scan" size=${28} /> سكان QR</button>
-        ${active.length > 0 && html`<div class="stack">${active.map((t) => html`<${TripCard} t=${t} key=${t.id} />`)}</div>`}
-        <div class="tiles">${tiles.map(([id, icon, label, sub, tone]) => html`<button class=${'tile t-' + tone} key=${id} onClick=${() => onGo(id)}>
+        <div class=${'tiles' + (tiles.length % 2 ? ' odd' : '')}>${tiles.map(([id, icon, label, sub, tone]) => html`<button class=${'tile t-' + tone + (id === 'trips' && active.length ? ' live' : '')} key=${id} onClick=${() => onGo(id)}>
           <span class="tile-ic"><${Icon} name=${icon} size=${30} /></span><b>${label}</b><small>${sub}</small></button>`)}</div>
-        <div class="grid2">
-          <button class="btn ghost" onClick=${() => openSheet(BlankStickersSheet)}><${Icon} name="qr" size=${20} /> استيكرات فاضية</button>
-          <button class="btn ghost" onClick=${() => openSheet(LogSheet)}><${Icon} name="history" size=${20} /> السجل</button>
-        </div>
-        <${SecTitle} right=${html`<button class="linkbtn" onClick=${() => openSheet(LogSheet)}>الكل</button>`}>آخر الحركات<//>
-        ${recent === null ? html`<${Spinner} />` : recent.length === 0 ? html`<${Empty} icon="history" text="لسه مفيش حركات. ابدأ بتسجيل السواقين وقطعهم." />`
-          : html`<div class="card tight">${recent.map((m) => html`<${MoveRow} m=${m} key=${m.id} />`)}</div>`}`}
+        <button class="btn ghost" onClick=${() => openSheet(MoreSheet)}><${Icon} name="history" size=${20} /> آخر الحركات والاستيكرات</button>`}
     </main>`;
+}
+
+/* آخر الحركات + الاستيكرات الفاضية (برا الرئيسية عشان تفضل بسيطة) */
+function MoreSheet({ close }) {
+  const [recent, setRecent] = useState(null);
+  useEffect(() => {
+    let off = false;
+    call('moves_list', { p: { limit: 12 } }).then((r) => { if (!off) setRecent(r); }).catch(() => { if (!off) setRecent([]); });
+    return () => { off = true; };
+  }, []);
+  return html`<${Sheet} title="آخر الحركات والاستيكرات" onClose=${close} full>
+    <div class="grid2">
+      <button class="btn dark sm" onClick=${() => openSheet(BlankStickersSheet)}><${Icon} name="qr" size=${18} /> استيكرات فاضية</button>
+      <button class="btn ghost sm" onClick=${() => openSheet(LogSheet)}><${Icon} name="history" size=${18} /> السجل كله</button>
+    </div>
+    <${SecTitle}>آخر الحركات<//>
+    ${recent === null ? html`<${Spinner} />` : recent.length === 0 ? html`<${Empty} icon="history" text="لسه مفيش حركات" />`
+      : html`<div class="card tight">${recent.map((m) => html`<${MoveRow} m=${m} key=${m.id} />`)}</div>`}
+  <//>`;
 }
 
 function AccountSheet({ onLogout, close }) {

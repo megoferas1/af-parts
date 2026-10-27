@@ -1,12 +1,12 @@
 /* drivers.js — السواقين وعربياتهم وقطعهم */
-import { html, useState, useMemo, Icon, Empty, Spinner, Field, Chips, SearchBox, Act, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=4';
-import { call, errText } from './api.js?v=4';
-import { useStore, reload } from './store.js?v=4';
-import * as L from './lib.js?v=4';
-import { ItemRow, ItemSheet, startNewItem, run, groupBy } from './items.js?v=4';
-import { StickerSheet, labelFor, FileReady } from './stickers.js?v=4';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=4';
-import { HeroScan } from './home.js?v=4';
+import { html, useState, useMemo, Icon, Empty, Spinner, Field, Chips, SearchBox, Act, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=6';
+import { call, errText } from './api.js?v=6';
+import { useStore, reload } from './store.js?v=6';
+import * as L from './lib.js?v=6';
+import { ItemRow, ItemSheet, startNewItem, run, groupBy } from './items.js?v=6';
+import { StickerSheet, labelFor, FileReady } from './stickers.js?v=6';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=6';
+import { HeroScan } from './home.js?v=6';
 
 export function DriversTab() {
   const { data, idx } = useStore();
@@ -22,6 +22,11 @@ export function DriversTab() {
     <main class="body">
       <${SearchBox} value=${q} onChange=${setQ} placeholder="دوّر على سواق أو عربية" />
       <button class="btn" onClick=${() => openSheet(DriverForm, { onSaved: (id) => openSheet(DriverSheet, { id }) })}><${Icon} name="plus" size=${22} /> سواق جديد</button>
+      <button class="dcard garage" onClick=${() => openSheet(GaragePartsSheet)}>
+        <span class="avatar"><${Icon} name="home" size=${22} /></span>
+        <span class="grow"><b>قطع الجراش</b><small>قطع ملك الجراش، مش لسواق</small></span>
+        <span class="qty"><b class="num">${L.sum(idx.garageParts, (i) => i.qty)}</b><span>قطعة</span></span>
+      </button>
       ${list.length === 0 ? html`<${Empty} icon="users" text=${q ? 'مفيش سواق بالاسم ده' : 'لسه مفيش سواقين — ضيف أول سواق'} />`
         : html`<div class="dgrid">${list.map((d) => {
           const its = idx.itemsByDriver.get(d.id) || [];
@@ -34,6 +39,26 @@ export function DriversTab() {
           </button>`;
         })}</div>`}
     </main>`;
+}
+
+/* قطع ملك الجراش (من غير سواق) */
+export function GaragePartsSheet({ close }) {
+  const { idx } = useStore();
+  const [q, setQ] = useState('');
+  const its = idx.garageParts.filter((i) => !q || L.matches(idx.hay.get(i.id), q));
+  const have = its.filter((i) => i.qty > 0), gone = its.filter((i) => i.qty === 0);
+  return html`<${Sheet} title="قطع الجراش" sub=${`${L.sum(idx.garageParts, (i) => i.qty)} قطعة`} onClose=${close} full>
+    <div class="grid2">
+      <button class="btn sm" onClick=${() => startNewItem({ kind: 'part', preset: { garage: true } })}><${Icon} name="plus" size=${18} /> قطعة جديدة</button>
+      <button class="btn ghost sm" disabled=${!have.length} onClick=${() => openSheet(StickerSheet, { labels: have.filter((i) => i.code).map((i) => labelFor(i, idx)), title: 'استيكرات قطع الجراش' })}><${Icon} name="printer" size=${18} /> استيكرات</button>
+    </div>
+    ${idx.garageParts.length > 0 && html`<${SearchBox} value=${q} onChange=${setQ} placeholder="دوّر في قطع الجراش" />`}
+    ${have.length === 0 && gone.length === 0 ? html`<${Empty} icon="home" text=${q ? 'مفيش حاجة كده' : 'لسه مفيش قطع للجراش. سجّلها من هنا أو اعمل سكان لاستيكر فاضي واختار "قطعة بتاعة الجراش".'} />`
+      : groupBy(have, (i) => i.category, idx.cats.part).map(([cat, xs]) => html`<div class="grp" key=${cat}>
+          <div class="grp-h">${cat} <i>${L.sum(xs, (i) => i.qty)}</i></div>
+          <div class="card tight">${xs.map((i) => html`<${ItemRow} item=${i} key=${i.id} showOwner=${false} />`)}</div></div>`)}
+    ${gone.length > 0 && html`<${SecTitle}>خلصت (${gone.length})<//><div class="card tight">${gone.map((i) => html`<${ItemRow} item=${i} key=${i.id} showOwner=${false} />`)}</div>`}
+  <//>`;
 }
 
 export function DriverSheet({ id, close }) {

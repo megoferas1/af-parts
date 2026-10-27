@@ -1,6 +1,6 @@
 /* docs.js — كشوفات PDF و Excel واستيكرات الـ QR (من غير سيرفر) */
-import { loadScript } from './api.js?v=4';
-import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=4';
+import { loadScript } from './api.js?v=6';
+import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=6';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const FONT = 'Tajawal';
@@ -362,3 +362,236 @@ export async function buildStickersPdf(labels, onProgress) {
 
 export const fileFrom = (blob, name) => new File([blob], name, { type: blob.type });
 export const safeName = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || 'AF-Parts';
+
+/* ===================================================================
+   الفاتورة — تصميم هادي: علامة مية خفيفة (شعار AF) ورا، لوجو، بيانات العميل، جدول البنود، والإجمالي
+   inv = { lang: 'ar'|'en', ref, date, currency: 'EGP'|'USD', rate, paid,
+           company: { name, address, phone, email }, billTo: { name, phone, address, country, extra },
+           lines: [{ part_no, desc, qty, unit, price }], discount, taxPct, notes, payment, terms }
+   =================================================================== */
+const IC = { ink: '#15171c', text: '#2b2f38', mute: '#7a808c', line: '#e6e8ec', soft: '#f4f5f7', red: '#c8102e', green: '#12805a' };
+export const CUR = {
+  EGP: { en: 'EGP', ar: 'ج.م' },
+  USD: { en: 'USD', ar: 'دولار' },
+};
+export const fmtMoney = (n, cur, lang) => {
+  const s = (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return cur ? s + ' ' + (CUR[cur] ? CUR[cur][lang === 'ar' ? 'ar' : 'en'] : cur) : s;
+};
+export const fmtQty = (n) => (Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 });
+export function invoiceTotals(lines, discount, taxPct) {
+  const sub = (lines || []).reduce((s, l) => s + Math.round((Number(l.qty) || 0) * (Number(l.price) || 0) * 100) / 100, 0);
+  const disc = Math.min(Math.max(Number(discount) || 0, 0), sub);
+  const tax = Math.round((sub - disc) * (Number(taxPct) || 0)) / 100;
+  return { sub: Math.round(sub * 100) / 100, disc, tax, total: Math.round((sub - disc + tax) * 100) / 100 };
+}
+
+export async function buildInvoicePdf(inv) {
+  await fontsReady();
+  const [logo, wm] = await Promise.all([loadLogo(), loadLogo('logo-wm.png')]);
+  const ar = inv.lang === 'ar', rtl = ar;
+  const T = ar ? {
+    title: 'فاتورة', billTo: 'الفاتورة إلى', no: 'رقم الفاتورة', date: 'التاريخ', cur: 'العملة', rate: 'سعر الدولار',
+    paid: 'مدفوعة', cols: ['#', 'رقم القطعة', 'البيان', 'الكمية', 'سعر الوحدة', 'الإجمالي'],
+    sub: 'الإجمالي', disc: 'خصم', tax: 'ضريبة', total: 'الإجمالي المستحق', notes: 'ملاحظات', pay: 'بيانات الدفع', terms: 'الشروط',
+    thanks: 'شكراً لتعاملكم معنا', page: (i, n) => `صفحة ${i} من ${n}`, curName: { EGP: 'جنيه مصري', USD: 'دولار أمريكي' },
+  } : {
+    title: 'INVOICE', billTo: 'BILL TO', no: 'Invoice No.', date: 'Date', cur: 'Currency', rate: 'Exchange rate',
+    paid: 'PAID', cols: ['#', 'PART NO.', 'DESCRIPTION', 'QTY', 'UNIT PRICE', 'AMOUNT'],
+    sub: 'Subtotal', disc: 'Discount', tax: 'VAT', total: 'Total Due', notes: 'NOTES', pay: 'PAYMENT DETAILS', terms: 'TERMS',
+    thanks: 'Thank you for your business', page: (i, n) => `Page ${i} of ${n}`, curName: { EGP: 'Egyptian Pound (EGP)', USD: 'US Dollar (USD)' },
+  };
+  const F = (w, s) => `${w} ${s}px ${FONT}, Tahoma, Arial, sans-serif`;
+  const L = 84, R = PW - 84, CW = R - L;                   // حدود المحتوى
+  const X = (x) => (rtl ? PW - x : x);                     // x من ناحية بداية السطر
+  const pages = [];
+  let g, y;
+
+  // ltr: للأرقام والتليفونات والإيميلات (عشان متتلخبطش جوه الصفحة العربي)
+  function text(s, x, yy, { font = F(500, 20), color = IC.text, align = 'start', track = 0, ltr = false } = {}) {
+    g.font = font; g.fillStyle = color;
+    g.textAlign = align === 'center' ? 'center' : (align === 'start') === !rtl ? 'left' : 'right';
+    if (track && 'letterSpacing' in g) g.letterSpacing = track + 'px';
+    if (ltr && rtl) g.direction = 'ltr';
+    g.fillText(String(s == null ? '' : s), align === 'center' ? x : X(x), yy);
+    if (ltr && rtl) g.direction = 'rtl';
+    if (track && 'letterSpacing' in g) g.letterSpacing = '0px';
+  }
+  const iso = (s) => (rtl ? '⁦' + s + '⁩' : s);
+  const tw = (s, font) => { g.font = font; return g.measureText(String(s == null ? '' : s)).width; };
+  function wrapText(s, maxW, font, maxLines = 3) {
+    g.font = font;
+    const out = [];
+    String(s == null ? '' : s).split('\n').forEach((para) => {
+      const words = para.split(/\s+/).filter(Boolean); let cur = '';
+      if (!words.length) { out.push(''); return; }
+      for (const w of words) { const t = cur ? cur + ' ' + w : w; if (g.measureText(t).width <= maxW || !cur) cur = t; else { out.push(cur); cur = w; } }
+      if (cur) out.push(cur);
+    });
+    if (out.length > maxLines) { out.length = maxLines; out[maxLines - 1] += '…'; }
+    return out;
+  }
+  const hline = (yy, color = IC.line, h = 1.5, x0 = L, x1 = R) => { g.fillStyle = color; g.fillRect(rtl ? PW - x1 : x0, yy, x1 - x0, h); };
+  const lab = (s, x, yy, align = 'start') => text(s, x, yy, { font: F(700, ar ? 17 : 15), color: IC.mute, track: ar ? 0 : 2.5, align });
+
+  function page() {
+    const c = document.createElement('canvas'); c.width = PW; c.height = PH;
+    g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, PW, PH);
+    g.direction = rtl ? 'rtl' : 'ltr'; g.textBaseline = 'alphabetic';
+    // العلامة المية: شعار AF كامل في نص الصفحة، شفاف وخفيف
+    if (wm) {
+      const ww = 600, wh = ww * (wm.height / wm.width);
+      g.save(); g.globalAlpha = 0.035; g.drawImage(wm, (PW - ww) / 2, PH * 0.53 - wh / 2, ww, wh); g.restore();
+    }
+    pages.push(c);
+    y = 96;
+  }
+
+  // ---------- الهيدر ----------
+  page();
+  if (logo) {
+    const lh = 58, lw = lh * (logo.width / logo.height);
+    g.drawImage(logo, rtl ? R - lw : L, y, lw, lh);
+  }
+  text(T.title, R, y + 44, { font: F(700, ar ? 46 : 38), color: IC.ink, align: 'end', track: ar ? 0 : 10 });
+  text(inv.ref || '', R, y + 82, { font: F(500, 21), color: IC.mute, align: 'end', ltr: true });
+  if (inv.paid) {
+    const f = F(700, 16), w = tw(T.paid, f) + (ar ? 26 : 32);
+    const bx = R - w, by2 = y + 100;
+    g.save(); g.strokeStyle = IC.green; g.lineWidth = 1.5;
+    g.strokeRect(rtl ? PW - bx - w : bx, by2, w, 32); g.restore();
+    text(T.paid, R - (ar ? 13 : 16), by2 + 22, { font: f, color: IC.green, align: 'end', track: ar ? 0 : 3 });
+  }
+  y += 104;
+  const co = inv.company || {};
+  text(co.name || '', L, y, { font: F(700, 21), color: IC.ink });
+  let cy = y + 32;
+  if (co.address) { text(co.address, L, cy, { font: F(500, 18), color: IC.mute }); cy += 28; }
+  const contact = [co.phone, co.email].filter(Boolean).join('   ·   ');
+  if (contact) text(contact, L, cy, { font: F(500, 18), color: IC.mute, ltr: true });
+  y += 96;
+  hline(y); y += 56;
+
+  // ---------- العميل + بيانات الفاتورة ----------
+  const b = inv.billTo || {};
+  const colW = CW / 2 - 40;
+  lab(T.billTo, L, y);
+  let by = y + 42;
+  wrapText(b.name || '—', colW, F(700, 26), 2).forEach((s) => { text(s, L, by, { font: F(700, 26), color: IC.ink }); by += 36; });
+  by += 2;
+  if (b.phone) { text(b.phone, L, by, { font: F(500, 19), color: IC.text, ltr: true }); by += 29; }
+  [b.extra, ...(b.address ? wrapText(b.address, colW, F(500, 19), 2) : []), b.country].filter(Boolean).forEach((s) => { text(s, L, by, { font: F(500, 19), color: IC.text }); by += 29; });
+
+  const meta = [[T.no, inv.ref || '', true], [T.date, inv.dateText || inv.date || '', false], [T.cur, T.curName[inv.currency] || inv.currency, false]];
+  if (inv.rate && inv.showRate) meta.push([T.rate, '1 USD = ' + fmtQty(inv.rate) + ' EGP', true]);
+  const mx0 = L + CW / 2 + 60;
+  let my = y;
+  meta.forEach(([k, v, isLtr]) => {
+    text(k, mx0, my, { font: F(500, 18), color: IC.mute });
+    text(v, R, my, { font: F(600, 19), color: IC.ink, align: 'end', ltr: isLtr });
+    my += 38;
+  });
+  y = Math.max(by, my) + 40;
+
+  // ---------- جدول البنود ----------
+  const anyPart = (inv.lines || []).some((l) => l.part_no);
+  const spec = [
+    { k: 'n', w: 0.5, a: 'start' },
+    ...(anyPart ? [{ k: 'part_no', w: 1.6, a: 'start' }] : []),
+    { k: 'desc', w: anyPart ? 4.1 : 5.6, a: 'start' },
+    { k: 'qty', w: 1.05, a: 'center' },
+    { k: 'price', w: 1.6, a: 'end' },
+    { k: 'amount', w: 1.75, a: 'end' },
+  ];
+  const labels = { n: T.cols[0], part_no: T.cols[1], desc: T.cols[2], qty: T.cols[3], price: T.cols[4], amount: T.cols[5] };
+  const tot = spec.reduce((s2, c) => s2 + c.w, 0);
+  spec.forEach((c) => { c.px = (c.w / tot) * CW; });
+  const cellX = (i) => L + spec.slice(0, i).reduce((s2, c) => s2 + c.px, 0);
+  const pad = 10;
+  const at = (i, a) => (a === 'center' ? cellX(i) + spec[i].px / 2 : a === 'end' ? cellX(i) + spec[i].px - pad : cellX(i) + (i === 0 ? 0 : pad));
+  const descW = spec.find((c) => c.k === 'desc').px - pad * 2;
+
+  function head() {
+    spec.forEach((c, i) => {
+      const x = at(i, c.a);
+      lab(labels[c.k], c.a === 'center' ? X(x) : (i === spec.length - 1 ? R : x), y + 20, c.a);
+    });
+    y += 38;
+    hline(y, IC.ink, 2);
+    y += 2;
+  }
+  head();
+  (inv.lines || []).forEach((l, n) => {
+    const descLines = wrapText(l.desc || '', descW, F(600, 20), 3);
+    const h = Math.max(66, descLines.length * 28 + 38);
+    if (y + h > PH - 250) { page(); y = 110; head(); }
+    const vals = {
+      n: String(n + 1).padStart(2, '0'), part_no: l.part_no || '',
+      qty: fmtQty(l.qty) + (l.unit ? ' ' + l.unit : ''),
+      price: fmtMoney(l.price), amount: fmtMoney((Number(l.qty) || 0) * (Number(l.price) || 0)),
+    };
+    spec.forEach((c, i) => {
+      const x = c.k === 'amount' ? R : at(i, c.a);
+      if (c.k === 'desc') { descLines.forEach((s2, li) => text(s2, x, y + 41 + li * 28, { font: F(600, 20), color: IC.ink })); return; }
+      text(vals[c.k], c.a === 'center' ? X(x) : x, y + 41, {
+        font: c.k === 'amount' ? F(700, 20) : c.k === 'part_no' || c.k === 'n' ? F(500, 18) : F(500, 20),
+        color: c.k === 'n' || c.k === 'part_no' ? IC.mute : IC.text, align: c.a, ltr: c.k === 'part_no',
+      });
+    });
+    y += h;
+    hline(y - 1, IC.line, 1);
+  });
+
+  // ---------- الإجمالي ----------
+  const t = invoiceTotals(inv.lines, inv.discount, inv.taxPct);
+  const rows = [[T.sub, fmtMoney(t.sub, inv.currency, inv.lang)]];
+  if (t.disc > 0) rows.push([T.disc, (ar ? '' : '− ') + fmtMoney(t.disc, inv.currency, inv.lang)]);
+  if (Number(inv.taxPct) > 0) rows.push([T.tax + ' ' + iso(fmtQty(inv.taxPct) + '%'), fmtMoney(t.tax, inv.currency, inv.lang)]);
+  const need = rows.length * 42 + 110;
+  if (y + need + 30 > PH - 180) { page(); y = 110; }
+  y += 34;
+  const tx0 = L + CW * 0.56;
+  const top = y;
+  rows.forEach(([k, v]) => {
+    text(k, tx0, y + 24, { font: F(500, 19), color: IC.mute });
+    text(v, R, y + 24, { font: F(600, 20), color: IC.text, align: 'end' });
+    y += 42;
+  });
+  y += 10;
+  hline(y, IC.ink, 2, tx0, R);
+  text(T.total, tx0, y + 50, { font: F(700, 21), color: IC.ink });
+  text(fmtMoney(t.total, inv.currency, inv.lang), R, y + 52, { font: F(800, 30), color: IC.ink, align: 'end' });
+  y += 76;
+
+  // ---------- ملاحظات / الدفع / الشروط (على جنب الإجمالي) ----------
+  const blocks = [[T.notes, inv.notes], [T.pay, inv.payment], [T.terms, inv.terms]].filter(([, v]) => v && String(v).trim());
+  let ny = top;
+  const nW = CW * 0.48;
+  blocks.forEach(([k, v]) => {
+    const ls = wrapText(v, nW, F(500, 18), 6);
+    const hh = 30 + ls.length * 26 + 24;
+    if (ny + hh > PH - 170) { page(); ny = 110; }
+    lab(k, L, ny + 18);
+    ls.forEach((s2, i) => text(s2, L, ny + 48 + i * 26, { font: F(500, 18), color: IC.text }));
+    ny += hh;
+  });
+
+  // ---------- الفوتر ----------
+  pages.forEach((c, i) => {
+    g = c.getContext('2d'); g.direction = rtl ? 'rtl' : 'ltr';
+    hline(PH - 116, IC.line, 1.5);
+    text(T.thanks, L, PH - 76, { font: F(600, 19), color: IC.ink });
+    text([co.phone, co.email].filter(Boolean).join('   ·   '), L, PH - 47, { font: F(500, 17), color: IC.mute, ltr: true });
+    text(T.page(i + 1, pages.length), R, PH - 76, { font: F(500, 17), color: IC.mute, align: 'end' });
+    text(inv.ref || '', R, PH - 47, { font: F(500, 17), color: IC.mute, align: 'end', ltr: true });
+  });
+
+  const jsPDF = await jsPDFCtor();
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
+  pages.forEach((c, i) => {
+    if (i > 0) doc.addPage();
+    doc.addImage(c.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+  });
+  return doc.output('blob');
+}

@@ -183,3 +183,19 @@ export const Splash = ({ text, children }) => html`<div class="splash"><img src=
 
 /* صف عنوان قسم */
 export const SecTitle = ({ children, right }) => html`<div class="sec-title"><span class="grow">${children}</span>${right}</div>`;
+
+/* رقم بكسور (أسعار وكميات): بيقبل الأرقام العربي والإنجليزي */
+export const parseNum = (t) => {
+  const s = String(t == null ? '' : t).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/٫/g, '.').replace(/[,،\s]/g, '');
+  if (s === '' || s === '.') return null;
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+};
+export function NumInput({ value, onChange, placeholder, cls, disabled }) {
+  const show = (v) => (v === null || v === undefined || v === '' ? '' : String(v));
+  const [txt, setTxt] = useState(show(value));
+  const last = useRef(value);
+  useEffect(() => { if (value !== last.current) { last.current = value; setTxt(show(value)); } }, [value]);
+  return html`<input class=${'input ltr num-in ' + (cls || '')} inputmode="decimal" placeholder=${placeholder || ''} value=${txt} disabled=${disabled}
+    onInput=${(e) => { const t = e.target.value.replace(/[^0-9٠-٩.,٫]/g, ''); setTxt(t); const n = parseNum(t); last.current = n; onChange(n); }} />`;
+}

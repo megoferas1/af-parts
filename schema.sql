@@ -112,7 +112,7 @@ create table if not exists public.items (
   photo_path text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  check ((kind = 'part') = (driver_id is not null))
+  constraint items_owner_kind check (kind = 'part' or driver_id is null)   -- القطعة: لسواق، أو من غير سواق = ملك الجراش
 );
 create index if not exists items_driver_idx on public.items (driver_id);
 alter table public.items alter column code drop not null;
@@ -275,14 +275,14 @@ end $$;
 -- مين اللي بيعمل العملية
 create or replace function public._actor(p_token text)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
-declare v uuid; n text;
+declare v uuid; n text; ci boolean;
 begin
   if public.is_admin() then
-    return jsonb_build_object('kind', 'admin', 'name', 'الإدارة');
+    return jsonb_build_object('kind', 'admin', 'name', 'الإدارة', 'inv', true);
   end if;
   v := public._staff_id(p_token);
-  select name into n from public.staff where id = v;
-  return jsonb_build_object('kind', 'staff', 'id', v, 'name', coalesce(n, ''));
+  select name, can_invoice into n, ci from public.staff where id = v;
+  return jsonb_build_object('kind', 'staff', 'id', v, 'name', coalesce(n, ''), 'inv', coalesce(ci, false));
 end $$;
 
 create or replace function public._need_admin()
@@ -368,7 +368,11 @@ begin
     address_ar = coalesce(trim(p->>'address_ar'), address_ar),
     address_en = coalesce(trim(p->>'address_en'), address_en),
     phone = coalesce(trim(p->>'phone'), phone),
-    email = coalesce(trim(p->>'email'), email)
+    email = coalesce(trim(p->>'email'), email),
+    inv_tax = coalesce(nullif(p->>'inv_tax', '')::numeric, inv_tax),
+    inv_payment = coalesce(trim(p->>'inv_payment'), inv_payment),
+    inv_terms_ar = coalesce(trim(p->>'inv_terms_ar'), inv_terms_ar),
+    inv_terms_en = coalesce(trim(p->>'inv_terms_en'), inv_terms_en)
   where id = 1;
 end $$;
 
@@ -434,7 +438,9 @@ begin
   v_code := public._take_code(o->>'code');
   insert into public.items (code, kind, name, category, size, driver_id, car_id, qty, condition, location, note)
   values (v_code, 'part', coalesce(nullif(trim(o->>'name'), ''), p_src.name || ' (القديمة)'), p_src.category,
-          trim(coalesce(o->>'size', '')), p_src.driver_id, coalesce(p_car, p_src.car_id), q, v_cond,
+          trim(coalesce(o->>'size', '')),
+          coalesce(p_src.driver_id, (select c.driver_id from public.cars c where c.id = coalesce(p_car, p_src.car_id))),
+          coalesce(p_car, p_src.car_id), q, v_cond,
           trim(coalesce(o->>'location', '')), trim(coalesce(o->>'note', '')))
   returning id into v_id;
   perform public._log(v_id, 'removed', q, q, p_why || ' بدل ' || p_src.code, p_actor, p_trip, coalesce(p_car, p_src.car_id));
@@ -455,15 +461,22 @@ $$;
 -- ---------------------------------------------------------------------
 create or replace function public.bootstrap(p_token text)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
-declare a jsonb := public._actor(p_token);
+declare a jsonb := public._actor(p_token); inv boolean := coalesce((a->>'inv')::boolean, false);
 begin
   return jsonb_build_object(
     'me', a,
-    'settings', (select to_jsonb(s) from public.settings s where id = 1),
+    'settings', (select case when inv then to_jsonb(s) else to_jsonb(s) - 'inv_payment' - 'inv_terms_ar' - 'inv_terms_en' - 'inv_tax' end
+                   from public.settings s where id = 1),
     'drivers', coalesce((select jsonb_agg(to_jsonb(d) order by d.name) from public.drivers d), '[]'::jsonb),
     'cars', coalesce((select jsonb_agg(to_jsonb(c) order by c.name) from public.cars c), '[]'::jsonb),
     'categories', coalesce((select jsonb_agg(to_jsonb(c) order by c.kind, c.sort, c.name) from public.categories c), '[]'::jsonb),
-    'items', coalesce((select jsonb_agg(to_jsonb(i) order by i.name) from public.items i), '[]'::jsonb),
+    'items', coalesce((select jsonb_agg(case when inv then to_jsonb(i) else to_jsonb(i) - 'price' - 'price_cur' end order by i.name)
+                         from public.items i), '[]'::jsonb),
+    'price_items', case when inv then coalesce((select jsonb_agg(to_jsonb(x) order by x.kind, x.name) from public.price_items x), '[]'::jsonb)
+                   else '[]'::jsonb end,
+    'invoices', case when inv then coalesce((select jsonb_agg(to_jsonb(v) order by v.inv_date desc, v.created_at desc)
+                     from (select * from public.invoices order by inv_date desc, created_at desc limit 300) v), '[]'::jsonb)
+                else '[]'::jsonb end,
     'trips', coalesce((
       select jsonb_agg(to_jsonb(t) || jsonb_build_object('items', coalesce((
                select jsonb_agg(to_jsonb(x) - 'trip_id' order by x.added_at) from public.trip_items x where x.trip_id = t.id), '[]'::jsonb))
@@ -614,6 +627,18 @@ end $$;
 -- ---------------------------------------------------------------------
 -- 12) الحاجات
 -- ---------------------------------------------------------------------
+-- رقم القطعة الجاي لنوع منتجات: AF-<اختصار النوع>-<رقم>
+create or replace function public._next_part_no(p_cat text)
+returns text language plpgsql security definer set search_path = public as $$
+declare ab text; pre text; mx int;
+begin
+  select nullif(abbr, '') into ab from public.categories where kind = 'product' and name = coalesce(p_cat, '');
+  pre := 'AF-' || coalesce(ab, 'GEN') || '-';
+  select coalesce(max(substring(upper(part_no) from length(pre) + 1)::int), 0) into mx
+    from public.items where upper(part_no) like pre || '%' and substring(upper(part_no) from length(pre) + 1) ~ '^[0-9]+$';
+  return pre || lpad((mx + 1)::text, 3, '0');
+end $$;
+
 create or replace function public.save_item(p_token text, p_id uuid, p jsonb)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare
@@ -630,6 +655,7 @@ declare
   v_loc text := trim(coalesce(p->>'location', ''));
   v_note text := trim(coalesce(p->>'note', ''));
   v_qty int := coalesce(nullif(p->>'qty', '')::int, 1);
+  v_pn text := nullif(upper(trim(coalesce(p->>'part_no', ''))), '');
   v_id uuid; v_code text;
 begin
   if v_name = '' then raise exception 'name_required'; end if;
@@ -640,25 +666,37 @@ begin
     v_kind := old.kind;
   end if;
   if v_kind not in ('part', 'tool', 'product') then raise exception 'bad_kind'; end if;
+  if v_kind <> 'product' then v_pn := null; end if;
+  if v_pn is not null and exists (select 1 from public.items where upper(part_no) = v_pn and id is distinct from p_id) then
+    raise exception 'part_no_used';
+  end if;
   if v_kind = 'part' then
-    if v_driver is null or not exists (select 1 from public.drivers where id = v_driver) then raise exception 'driver_required'; end if;
+    -- من غير سواق = قطعة ملك الجراش
+    if v_driver is not null and not exists (select 1 from public.drivers where id = v_driver) then raise exception 'driver_required'; end if;
+    if v_driver is null then v_car := null; end if;
     if v_car is not null and not exists (select 1 from public.cars where id = v_car and driver_id = v_driver) then raise exception 'car_mismatch'; end if;
   else
     v_driver := null; v_car := null;
   end if;
 
   if p_id is null then
-    if v_qty < 1 then raise exception 'bad_qty'; end if;
+    if v_qty < (case when v_kind = 'product' then 0 else 1 end) then raise exception 'bad_qty'; end if;
     v_code := case when v_kind = 'tool' then null else public._take_code(p->>'code') end;
-    insert into public.items (code, kind, name, name_en, category, size, driver_id, car_id, qty, condition, location, note)
-    values (v_code, v_kind, v_name, v_en, v_cat, v_size, v_driver, v_car, v_qty, v_cond, v_loc, v_note)
+    if v_kind = 'product' and v_pn is null then v_pn := public._next_part_no(v_cat); end if;  -- رقم القطعة أوتوماتيك
+    insert into public.items (code, kind, name, name_en, category, size, driver_id, car_id, qty, condition, location, note, part_no)
+    values (v_code, v_kind, v_name, v_en, v_cat, v_size, v_driver, v_car, v_qty, v_cond, v_loc, v_note, v_pn)
     returning id into v_id;
     perform public._log(v_id, 'create', v_qty, v_qty, trim(coalesce(p->>'source', '')), a, null, v_car);
   else
     update public.items
        set name = v_name, name_en = v_en, category = v_cat, size = v_size, driver_id = v_driver, car_id = v_car,
-           condition = v_cond, location = v_loc, note = v_note, updated_at = now()
+           condition = v_cond, location = v_loc, note = v_note,
+           part_no = case when p ? 'part_no' then v_pn else part_no end, updated_at = now()
      where id = p_id returning id, code into v_id, v_code;
+    if p ? 'part_no' and old.part_no is distinct from v_pn then
+      perform public._log(v_id, 'edit', 0, 0,
+        'رقم القطعة: من "' || coalesce(nullif(old.part_no, ''), '—') || '" إلى "' || coalesce(v_pn, '—') || '"', a);
+    end if;
     if old.location is distinct from v_loc then
       perform public._log(v_id, 'move', 0, 0,
         'من "' || coalesce(nullif(old.location, ''), 'بدون مكان') || '" إلى "' || coalesce(nullif(v_loc, ''), 'بدون مكان') || '"', a);
@@ -678,7 +716,7 @@ begin
         'المقاس: من "' || coalesce(nullif(old.size, ''), '—') || '" إلى "' || coalesce(nullif(v_size, ''), '—') || '"', a);
     end if;
   end if;
-  return jsonb_build_object('id', v_id, 'code', v_code);
+  return jsonb_build_object('id', v_id, 'code', v_code, 'part_no', (select part_no from public.items where id = v_id));
 end $$;
 
 -- دخول / خروج / جرد
@@ -719,7 +757,8 @@ begin
   if p_qty > p.qty then raise exception 'not_enough'; end if;
   v_car := coalesce(p_car, p.car_id);
   if v_car is null then raise exception 'car_required'; end if;
-  select name into cname from public.cars where id = v_car and driver_id = p.driver_id;
+  -- قطعة السواق على عربيته بس، وقطعة الجراش على أي عربية
+  select name into cname from public.cars where id = v_car and (p.driver_id is null or driver_id = p.driver_id);
   if cname is null then raise exception 'car_mismatch'; end if;
   update public.items set qty = qty - p_qty, updated_at = now() where id = p_item;
   old_code := public._old_part(p, v_car, p_old, 'اتشالت من ' || cname, a, null);
@@ -1244,7 +1283,8 @@ begin
        where (f_item is null or mv.item_id = f_item)
          and (f_trip is null or mv.trip_id = f_trip)
          and (f_car is null or mv.car_id = f_car)
-         and (f_driver is null or it.driver_id = f_driver)
+         and (f_driver is null or it.driver_id = f_driver
+              or mv.car_id in (select c.id from public.cars c where c.driver_id = f_driver))
          and (f_kind is null or it.kind = f_kind)
          and (f_from is null or (mv.created_at at time zone 'Africa/Cairo')::date >= f_from)
          and (f_to is null or (mv.created_at at time zone 'Africa/Cairo')::date <= f_to)
@@ -1258,6 +1298,246 @@ begin
        limit f_limit
     ) m
   ), '[]'::jsonb);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 15ب) الأسعار والفواتير
+--   • منتجاتنا (منتجات التصدير) ليها رقم قطعة ثابت (AF-ENG-001) وسعر
+--   • ليستة أسعار للمصنعيات والقطع والخامات
+--   • الفواتير للإدارة، واللي الإدارة تديله صلاحية من الموظفين
+-- ---------------------------------------------------------------------
+alter table public.settings add column if not exists inv_tax numeric(5,2) not null default 0;
+alter table public.settings add column if not exists inv_payment text not null default '';
+alter table public.settings add column if not exists inv_terms_ar text not null default '';
+alter table public.settings add column if not exists inv_terms_en text not null default '';
+
+alter table public.staff add column if not exists can_invoice boolean not null default false;
+
+alter table public.categories add column if not exists abbr text not null default '';
+
+alter table public.items add column if not exists part_no text;
+alter table public.items add column if not exists price numeric(12,2);
+alter table public.items add column if not exists price_cur text not null default 'USD';
+do $$ begin
+  alter table public.items add constraint items_price_cur check (price_cur in ('EGP', 'USD'));
+exception when duplicate_object then null; end $$;
+create unique index if not exists items_part_no_key on public.items (upper(part_no)) where part_no is not null and part_no <> '';
+
+create table if not exists public.price_items (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null check (kind in ('labor', 'material')),   -- مصنعية / قطع وخامات
+  name text not null,
+  name_en text not null default '',
+  unit text not null default '',
+  price numeric(12,2) not null default 0,
+  price_cur text not null default 'EGP' check (price_cur in ('EGP', 'USD')),
+  part_no text not null default '',
+  note text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create sequence if not exists public.inv_seq;
+create table if not exists public.invoices (
+  id uuid primary key default gen_random_uuid(),
+  ref text not null unique default ('INV-' || lpad(nextval('public.inv_seq')::text, 4, '0')),
+  inv_date date not null default ((now() at time zone 'Africa/Cairo')::date),
+  lang text not null default 'ar' check (lang in ('ar', 'en')),
+  currency text not null default 'EGP' check (currency in ('EGP', 'USD')),
+  rate numeric(12,4),                      -- كام جنيه في الدولار وقت الفاتورة
+  show_rate boolean not null default false,
+  bill jsonb not null default '{}'::jsonb, -- name, phone, address, country, extra
+  customer_id uuid references public.customers(id) on delete set null,
+  driver_id uuid references public.drivers(id) on delete set null,
+  shipment_id uuid references public.shipments(id) on delete set null,
+  lines jsonb not null default '[]'::jsonb,
+  discount numeric(12,2) not null default 0,
+  tax_pct numeric(5,2) not null default 0,
+  subtotal numeric(14,2) not null default 0,
+  total numeric(14,2) not null default 0,
+  notes text not null default '',
+  terms text not null default '',
+  paid boolean not null default false,
+  created_by text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists invoices_date_idx on public.invoices (inv_date desc, created_at desc);
+alter table public.invoices add column if not exists show_payment boolean not null default false;
+
+-- أنواع منتجاتنا واختصاراتها (اللي بتتحط في رقم القطعة)
+insert into public.categories (kind, name, sort, abbr) values
+  ('product', 'كيت زاوية', 1, 'ANG'), ('product', 'قواعد ماتور', 2, 'ENG'), ('product', 'دراعات', 3, 'ARM'),
+  ('product', 'ضبط التو', 4, 'TOE'), ('product', 'رول كيج', 5, 'CAG'), ('product', 'تعليق', 6, 'SUS'),
+  ('product', 'شاسيه وتقوية', 7, 'CHS'), ('product', 'تانية', 99, 'GEN')
+on conflict (kind, name) do update set abbr = case when public.categories.abbr = '' then excluded.abbr else public.categories.abbr end;
+
+-- قطع الجراش: القطعة ممكن تبقى من غير سواق (ملك الجراش)
+do $$ declare c text; begin
+  for c in select conname from pg_constraint where conrelid = 'public.items'::regclass and contype = 'c'
+            and pg_get_constraintdef(oid) like '%(kind = ''part''::text) = (driver_id IS NOT NULL)%' loop
+    execute format('alter table public.items drop constraint %I', c);
+  end loop;
+  begin
+    alter table public.items add constraint items_owner_kind check (kind = 'part' or driver_id is null);
+  exception when duplicate_object then null; end;
+end $$;
+
+alter table public.price_items enable row level security;
+alter table public.invoices enable row level security;
+revoke all on public.price_items from anon, authenticated;
+revoke all on public.invoices from anon, authenticated;
+revoke all on sequence public.inv_seq from anon, authenticated;
+
+-- لازم يكون عنده صلاحية الفواتير (الإدارة أو موظف الإدارة اديته الصلاحية)
+create or replace function public._need_invoice(p_token text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  if not coalesce((a->>'inv')::boolean, false) then raise exception 'invoice_only'; end if;
+  return a;
+end $$;
+
+-- الإدارة: الموظفين ومين ليه صلاحية الفواتير
+create or replace function public.admin_staff()
+returns jsonb language plpgsql security definer set search_path = public as $$
+begin
+  perform public._need_admin();
+  return coalesce((select jsonb_agg(jsonb_build_object('id', id, 'name', name, 'can_invoice', can_invoice) order by name)
+                     from public.staff where active), '[]'::jsonb);
+end $$;
+
+create or replace function public.admin_set_staff_invoice(p_id uuid, p_on boolean)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform public._need_admin();
+  update public.staff set can_invoice = coalesce(p_on, false) where id = p_id;
+  if not found then raise exception 'not_found'; end if;
+end $$;
+
+-- سعر منتج من منتجاتنا (الرقم بيتحفظ مع المنتج نفسه)
+create or replace function public.set_item_price(p_token text, p_item uuid, p_price numeric, p_cur text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._need_invoice(p_token); k text;
+begin
+  select kind into k from public.items where id = p_item;
+  if k is null then raise exception 'not_found'; end if;
+  if k <> 'product' then raise exception 'bad_kind'; end if;
+  if p_price is not null and p_price < 0 then raise exception 'bad_price'; end if;
+  if coalesce(p_cur, 'USD') not in ('EGP', 'USD') then raise exception 'bad_currency'; end if;
+  update public.items set price = round(p_price, 2), price_cur = coalesce(p_cur, 'USD'), updated_at = now() where id = p_item;
+end $$;
+
+-- اختصار نوع المنتجات (اللي بيتحط في رقم القطعة: AF-ENG-001)
+create or replace function public.set_category_abbr(p_token text, p_kind text, p_name text, p_abbr text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); v text := upper(regexp_replace(coalesce(p_abbr, ''), '[^A-Za-z0-9]', '', 'g'));
+begin
+  if length(v) > 6 then raise exception 'bad_abbr'; end if;
+  update public.categories set abbr = v where kind = p_kind and name = p_name;
+  if not found then raise exception 'not_found'; end if;
+end $$;
+
+-- ليستة الأسعار (مصنعيات / قطع وخامات)
+create or replace function public.price_item_save(p_token text, p_id uuid, p jsonb)
+returns uuid language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._need_invoice(p_token); v uuid;
+  v_kind text := coalesce(nullif(p->>'kind', ''), 'labor');
+  v_cur text := coalesce(nullif(p->>'price_cur', ''), 'EGP');
+  v_price numeric := coalesce(nullif(p->>'price', '')::numeric, 0);
+begin
+  if coalesce(trim(p->>'name'), '') = '' then raise exception 'name_required'; end if;
+  if v_kind not in ('labor', 'material') then raise exception 'bad_kind'; end if;
+  if v_cur not in ('EGP', 'USD') then raise exception 'bad_currency'; end if;
+  if v_price < 0 then raise exception 'bad_price'; end if;
+  if p_id is null then
+    insert into public.price_items (kind, name, name_en, unit, price, price_cur, part_no, note)
+    values (v_kind, trim(p->>'name'), trim(coalesce(p->>'name_en', '')), trim(coalesce(p->>'unit', '')), round(v_price, 2), v_cur,
+            upper(trim(coalesce(p->>'part_no', ''))), trim(coalesce(p->>'note', '')))
+    returning id into v;
+  else
+    update public.price_items set kind = v_kind, name = trim(p->>'name'), name_en = trim(coalesce(p->>'name_en', '')),
+           unit = trim(coalesce(p->>'unit', '')), price = round(v_price, 2), price_cur = v_cur,
+           part_no = upper(trim(coalesce(p->>'part_no', ''))), note = trim(coalesce(p->>'note', ''))
+     where id = p_id returning id into v;
+    if v is null then raise exception 'not_found'; end if;
+  end if;
+  return v;
+end $$;
+
+create or replace function public.price_item_delete(p_token text, p_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform public._need_admin();
+  delete from public.price_items where id = p_id;
+end $$;
+
+-- حفظ الفاتورة كاملة (البنود جوه lines)، والإجمالي بيتحسب هنا
+-- line = { kind: product|labor|material|free, ref_id, part_no, desc, qty, unit, price, src_price, src_cur, manual }
+create or replace function public.invoice_save(p_token text, p_id uuid, p jsonb)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare
+  a jsonb := public._need_invoice(p_token);
+  v_lines jsonb := '[]'::jsonb; l jsonb; q numeric; pr numeric;
+  v_sub numeric := 0; v_disc numeric; v_tax numeric := coalesce(nullif(p->>'tax_pct', '')::numeric, 0); v_tot numeric;
+  v_cur text := coalesce(nullif(p->>'currency', ''), 'EGP'); v_lang text := coalesce(nullif(p->>'lang', ''), 'ar');
+  v_bill jsonb := coalesce(p->'bill', '{}'::jsonb);
+  v uuid; v_ref text;
+begin
+  if v_cur not in ('EGP', 'USD') then raise exception 'bad_currency'; end if;
+  if v_lang not in ('ar', 'en') then v_lang := 'ar'; end if;
+  if jsonb_typeof(v_bill) <> 'object' or coalesce(trim(v_bill->>'name'), '') = '' then raise exception 'bill_required'; end if;
+  if jsonb_typeof(p->'lines') = 'array' then
+    for l in select value from jsonb_array_elements(p->'lines') loop
+      continue when jsonb_typeof(l) <> 'object' or coalesce(trim(l->>'desc'), '') = '';
+      q := round(coalesce(nullif(l->>'qty', '')::numeric, 0), 2);
+      pr := round(coalesce(nullif(l->>'price', '')::numeric, 0), 2);
+      if q <= 0 then raise exception 'bad_qty'; end if;
+      if pr < 0 then raise exception 'bad_price'; end if;
+      v_lines := v_lines || jsonb_build_array(l || jsonb_build_object('qty', q, 'price', pr, 'desc', trim(l->>'desc')));
+      v_sub := v_sub + round(q * pr, 2);
+    end loop;
+  end if;
+  if jsonb_array_length(v_lines) = 0 then raise exception 'invoice_empty'; end if;
+  if v_tax < 0 or v_tax > 100 then raise exception 'bad_tax'; end if;
+  v_disc := least(greatest(coalesce(nullif(p->>'discount', '')::numeric, 0), 0), v_sub);
+  v_tot := v_sub - v_disc + round((v_sub - v_disc) * v_tax / 100, 2);
+  if p_id is null then
+    insert into public.invoices (inv_date, lang, currency, rate, show_rate, bill, customer_id, driver_id, shipment_id,
+                                 lines, discount, tax_pct, subtotal, total, notes, terms, created_by, show_payment)
+    values (coalesce(nullif(p->>'inv_date', '')::date, (now() at time zone 'Africa/Cairo')::date), v_lang, v_cur,
+            nullif(p->>'rate', '')::numeric, coalesce((p->>'show_rate')::boolean, false), v_bill,
+            nullif(p->>'customer_id', '')::uuid, nullif(p->>'driver_id', '')::uuid, nullif(p->>'shipment_id', '')::uuid,
+            v_lines, v_disc, v_tax, round(v_sub, 2), round(v_tot, 2), trim(coalesce(p->>'notes', '')), trim(coalesce(p->>'terms', '')), a->>'name',
+            coalesce((p->>'show_payment')::boolean, false))
+    returning id, ref into v, v_ref;
+  else
+    update public.invoices set
+      inv_date = coalesce(nullif(p->>'inv_date', '')::date, inv_date), lang = v_lang, currency = v_cur,
+      rate = nullif(p->>'rate', '')::numeric, show_rate = coalesce((p->>'show_rate')::boolean, false), bill = v_bill,
+      customer_id = nullif(p->>'customer_id', '')::uuid, driver_id = nullif(p->>'driver_id', '')::uuid,
+      shipment_id = nullif(p->>'shipment_id', '')::uuid,
+      lines = v_lines, discount = v_disc, tax_pct = v_tax, subtotal = round(v_sub, 2), total = round(v_tot, 2),
+      notes = trim(coalesce(p->>'notes', '')), terms = trim(coalesce(p->>'terms', '')),
+      show_payment = coalesce((p->>'show_payment')::boolean, false), updated_at = now()
+     where id = p_id returning id, ref into v, v_ref;
+    if v is null then raise exception 'not_found'; end if;
+  end if;
+  return jsonb_build_object('id', v, 'ref', v_ref);
+end $$;
+
+create or replace function public.invoice_set_paid(p_token text, p_id uuid, p_paid boolean)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._need_invoice(p_token);
+begin
+  update public.invoices set paid = coalesce(p_paid, false), updated_at = now() where id = p_id;
+  if not found then raise exception 'not_found'; end if;
+end $$;
+
+create or replace function public.invoice_delete(p_token text, p_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform public._need_admin();
+  delete from public.invoices where id = p_id;
 end $$;
 
 -- ---------------------------------------------------------------------

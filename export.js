@@ -1,13 +1,14 @@
 /* export.js — التصدير: المنتجات، الشحنات، العملاء */
-import { html, useState, useMemo, Icon, Pill, Empty, Field, Chips, Stepper, SearchBox, Segmented, Sheet, Hero, openSheet, toast, confirmBox } from './ui.js?v=4';
-import { call, errText } from './api.js?v=4';
-import { useStore, getStore, reload, ownerText } from './store.js?v=4';
-import * as L from './lib.js?v=4';
-import { ItemRow, ItemPicker, startNewItem, groupBy, run } from './items.js?v=4';
-import { StickerSheet, labelFor, FileReady } from './stickers.js?v=4';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=4';
-import { ScanSheet } from './qr.js?v=4';
-import { HeroScan } from './home.js?v=4';
+import { html, useState, useMemo, Icon, Pill, Empty, Field, Chips, Stepper, SearchBox, Segmented, Sheet, Hero, openSheet, toast, confirmBox } from './ui.js?v=6';
+import { call, errText } from './api.js?v=6';
+import { useStore, getStore, reload, ownerText, canInvoice } from './store.js?v=6';
+import { InvoiceForm, invoiceFromShipment } from './invoices.js?v=6';
+import * as L from './lib.js?v=6';
+import { ItemRow, ItemPicker, startNewItem, groupBy, run } from './items.js?v=6';
+import { StickerSheet, labelFor, FileReady } from './stickers.js?v=6';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=6';
+import { ScanSheet } from './qr.js?v=6';
+import { HeroScan } from './home.js?v=6';
 
 export function ExportTab() {
   const { idx, data } = useStore();
@@ -237,6 +238,7 @@ export function ShipmentSheet({ id, close }) {
     footer=${html`<div class="stack">
       ${draft && html`<button class="btn bigbtn" disabled=${!s.items.length} onClick=${ship}><${Icon} name="globe" size=${22} /> اتشحنت</button>`}
       <button class=${'btn ' + (draft ? 'ghost' : 'bigbtn dark')} onClick=${() => openSheet(PackingListSheet, { id })}><${Icon} name="file" size=${20} /> Packing List (PDF / Excel)</button>
+      ${canInvoice() && s.items.length > 0 && html`<button class="btn ghost" onClick=${() => openSheet(InvoiceForm, { preset: invoiceFromShipment(s) })}><${Icon} name="file" size=${20} /> اعمل فاتورة للشحنة دي</button>`}
     </div>`}>
     <div class="row gap8 wrap"><${Pill} tone=${draft ? 'amber' : 'gray'}>${draft ? 'بتتجهز' : 'اتشحنت ' + L.fmtDateTime(s.shipped_at)}<//>${s.note && html`<span class="soft">${s.note}</span>`}</div>
     ${c && html`<button class="lrow boxed" onClick=${() => openSheet(CustomerForm, { id: c.id })}>
@@ -277,7 +279,7 @@ export function PackingListSheet({ id, close }) {
       const total = L.sum(s.items, (x) => x.qty);
       const rows = s.items.map((x, n) => {
         const i = idx.items.get(x.item_id) || {};
-        return { n: n + 1, code: i.code, name: en ? (i.name_en || i.name) : i.name, size: i.size || '—', qty: x.qty };
+        return { n: n + 1, code: i.part_no || i.code, name: en ? (i.name_en || i.name) : i.name, size: i.size || '—', qty: x.qty };
       });
       const meta = en
         ? [['Shipment No.', s.ref], ['Date', L.fmtDateEn(s.ship_date)], ['Customer', c.name || '—'], ['Country', c.country || '—'],
@@ -287,8 +289,8 @@ export function PackingListSheet({ id, close }) {
           ...(c.address ? [['العنوان', c.address]] : []),
           ['التواصل', [c.phone, c.email].filter(Boolean).join(' / ') || '—'], ['إجمالي الكمية', total + ' قطعة']];
       const cols = en
-        ? [{ key: 'n', label: '#', w: 0.5, align: 'center' }, { key: 'code', label: 'Code', w: 1.4 }, { key: 'name', label: 'Description', w: 4 }, { key: 'size', label: 'Size / Model', w: 2 }, { key: 'qty', label: 'Qty', w: 0.9, align: 'center' }]
-        : [{ key: 'n', label: '#', w: 0.5, align: 'center' }, { key: 'code', label: 'الكود', w: 1.4 }, { key: 'name', label: 'الصنف', w: 4 }, { key: 'size', label: 'المقاس / الموديل', w: 2 }, { key: 'qty', label: 'الكمية', w: 0.9, align: 'center' }];
+        ? [{ key: 'n', label: '#', w: 0.5, align: 'center' }, { key: 'code', label: 'Part No.', w: 1.5 }, { key: 'name', label: 'Description', w: 4 }, { key: 'size', label: 'Size / Model', w: 2 }, { key: 'qty', label: 'Qty', w: 0.9, align: 'center' }]
+        : [{ key: 'n', label: '#', w: 0.5, align: 'center' }, { key: 'code', label: 'رقم القطعة', w: 1.5 }, { key: 'name', label: 'الصنف', w: 4 }, { key: 'size', label: 'المقاس / الموديل', w: 2 }, { key: 'qty', label: 'الكمية', w: 0.9, align: 'center' }];
       const footer = en ? [S.company_en, S.address_en, S.phone, S.email].filter(Boolean).join(' — ') : [S.company_ar, S.address_ar, S.phone].filter(Boolean).join(' — ');
       const base = safeName(`${s.ref} ${c.name || ''} packing list`);
       if (fmt === 'pdf') {
