@@ -1,15 +1,16 @@
 /* home.js — الرئيسية + السكان العام + البحث */
-import { html, useState, useEffect, useMemo, Icon, Empty, Spinner, SearchBox, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=6';
-import { call, errText } from './api.js?v=6';
-import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=6';
-import * as L from './lib.js?v=6';
-import { ItemRow, ItemSheet, startNewItem } from './items.js?v=6';
-import { ScanSheet } from './qr.js?v=6';
-import { TripCard } from './trips.js?v=6';
-import { BlankStickersSheet } from './stickers.js?v=6';
-import { LogSheet, MoveRow } from './log.js?v=6';
-import { DriverSheet } from './drivers.js?v=6';
-import { AdminSheet } from './admin.js?v=6';
+import { html, useState, useEffect, useMemo, Icon, Empty, Spinner, SearchBox, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=7';
+import { call, errText } from './api.js?v=7';
+import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=7';
+import * as L from './lib.js?v=7';
+import { ItemRow, ItemSheet, startNewItem } from './items.js?v=7';
+import { ScanSheet } from './qr.js?v=7';
+import { TripCard } from './trips.js?v=7';
+import { BlankStickersSheet } from './stickers.js?v=7';
+import { LogSheet, MoveRow } from './log.js?v=7';
+import { DriverSheet } from './drivers.js?v=7';
+import { AdminSheet } from './admin.js?v=7';
+import { isOpenJob, isLate } from './jobs.js?v=7';
 
 /* السكان العام: يفتح الحاجة، أو يسجّل استيكر فاضي */
 export function scanOpen() {
@@ -53,6 +54,8 @@ export function HomeTab({ onGo, onLogout }) {
     ...(canInvoice() ? [['invoices', 'file', 'الفواتير والأسعار', `${data.invoices.filter((v) => !v.paid).length} لسه ما اتدفعتش`, 'green']] : []),
   ];
   const me = data.me;
+  const jobs = data.jobs.filter(isOpenJob);
+  const jReady = jobs.filter((j) => j.status === 'ready').length, jLate = jobs.filter(isLate).length;
   return html`
     <${Hero} title=${'أهلاً، ' + (me.kind === 'admin' ? 'الإدارة' : me.name)} sub=${L.fmtDate(L.todayStr())}
       right=${html`${isAdmin() && html`<button class="iconbtn" onClick=${() => openSheet(AdminSheet)} aria-label="الإعدادات"><${Icon} name="settings" size=${21} /></button>`}
@@ -66,6 +69,11 @@ export function HomeTab({ onGo, onLogout }) {
         ${results.items.length === 0 ? html`<${Empty} icon="search" text="مفيش حاجة بالاسم ده" />` : html`<div class="card tight">${results.items.map((i) => html`<${ItemRow} item=${i} key=${i.id} />`)}</div>`}`
       : html`
         <button class="btn bigbtn scanbig" onClick=${scanOpen}><${Icon} name="scan" size=${28} /> سكان QR</button>
+        <button class="jobbar" onClick=${() => onGo('jobs')}>
+          <span class="jobbar-ic"><${Icon} name="clip" size=${26} /></span>
+          <span class="grow"><b>شغل العربيات</b><small>${jobs.length ? `${jobs.length} عربية في الجراش` : 'مفيش عربيات في الجراش دلوقتي'}${jReady ? ` · ${jReady} جاهزة` : ''}${jLate ? ` · ${jLate} متأخرة` : ''}</small></span>
+          <${Icon} name="chev" size=${20} />
+        </button>
         <div class=${'tiles' + (tiles.length % 2 ? ' odd' : '')}>${tiles.map(([id, icon, label, sub, tone]) => html`<button class=${'tile t-' + tone + (id === 'trips' && active.length ? ' live' : '')} key=${id} onClick=${() => onGo(id)}>
           <span class="tile-ic"><${Icon} name=${icon} size=${30} /></span><b>${label}</b><small>${sub}</small></button>`)}</div>
         <button class="btn ghost" onClick=${() => openSheet(MoreSheet)}><${Icon} name="history" size=${20} /> آخر الحركات والاستيكرات</button>`}

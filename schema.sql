@@ -472,8 +472,10 @@ begin
     'categories', coalesce((select jsonb_agg(to_jsonb(c) order by c.kind, c.sort, c.name) from public.categories c), '[]'::jsonb),
     'items', coalesce((select jsonb_agg(case when inv then to_jsonb(i) else to_jsonb(i) - 'price' - 'price_cur' end order by i.name)
                          from public.items i), '[]'::jsonb),
-    'price_items', case when inv then coalesce((select jsonb_agg(to_jsonb(x) order by x.kind, x.name) from public.price_items x), '[]'::jsonb)
-                   else '[]'::jsonb end,
+    'price_items', coalesce((select jsonb_agg(case when inv then to_jsonb(x) else to_jsonb(x) - 'price' - 'price_cur' end order by x.kind, x.name)
+                               from public.price_items x), '[]'::jsonb),
+    'staff', coalesce((select jsonb_agg(jsonb_build_object('id', e.id, 'name', e.name) order by e.name) from public.staff e where e.active), '[]'::jsonb),
+    'jobs', public._job_jsons(inv),
     'invoices', case when inv then coalesce((select jsonb_agg(to_jsonb(v) order by v.inv_date desc, v.created_at desc)
                      from (select * from public.invoices order by inv_date desc, created_at desc limit 300) v), '[]'::jsonb)
                 else '[]'::jsonb end,
@@ -1502,11 +1504,12 @@ begin
   v_disc := least(greatest(coalesce(nullif(p->>'discount', '')::numeric, 0), 0), v_sub);
   v_tot := v_sub - v_disc + round((v_sub - v_disc) * v_tax / 100, 2);
   if p_id is null then
-    insert into public.invoices (inv_date, lang, currency, rate, show_rate, bill, customer_id, driver_id, shipment_id,
+    insert into public.invoices (inv_date, lang, currency, rate, show_rate, bill, customer_id, driver_id, shipment_id, job_id,
                                  lines, discount, tax_pct, subtotal, total, notes, terms, created_by, show_payment)
     values (coalesce(nullif(p->>'inv_date', '')::date, (now() at time zone 'Africa/Cairo')::date), v_lang, v_cur,
             nullif(p->>'rate', '')::numeric, coalesce((p->>'show_rate')::boolean, false), v_bill,
             nullif(p->>'customer_id', '')::uuid, nullif(p->>'driver_id', '')::uuid, nullif(p->>'shipment_id', '')::uuid,
+            nullif(p->>'job_id', '')::uuid,
             v_lines, v_disc, v_tax, round(v_sub, 2), round(v_tot, 2), trim(coalesce(p->>'notes', '')), trim(coalesce(p->>'terms', '')), a->>'name',
             coalesce((p->>'show_payment')::boolean, false))
     returning id, ref into v, v_ref;
@@ -1515,7 +1518,7 @@ begin
       inv_date = coalesce(nullif(p->>'inv_date', '')::date, inv_date), lang = v_lang, currency = v_cur,
       rate = nullif(p->>'rate', '')::numeric, show_rate = coalesce((p->>'show_rate')::boolean, false), bill = v_bill,
       customer_id = nullif(p->>'customer_id', '')::uuid, driver_id = nullif(p->>'driver_id', '')::uuid,
-      shipment_id = nullif(p->>'shipment_id', '')::uuid,
+      shipment_id = nullif(p->>'shipment_id', '')::uuid, job_id = nullif(p->>'job_id', '')::uuid,
       lines = v_lines, discount = v_disc, tax_pct = v_tax, subtotal = round(v_sub, 2), total = round(v_tot, 2),
       notes = trim(coalesce(p->>'notes', '')), terms = trim(coalesce(p->>'terms', '')),
       show_payment = coalesce((p->>'show_payment')::boolean, false), updated_at = now()
@@ -1538,6 +1541,360 @@ returns void language plpgsql security definer set search_path = public as $$
 begin
   perform public._need_admin();
   delete from public.invoices where id = p_id;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 15ج) أوامر الشغل: كل عربية داخلة الجراش ليها أمر شغل
+--   الحالة، الشغل المطلوب، المسؤول، الساعات، الخامات، القطع اللي اتركبت، صور قبل وبعد
+-- ---------------------------------------------------------------------
+create sequence if not exists public.job_seq;
+
+create table if not exists public.jobs (
+  id uuid primary key default gen_random_uuid(),
+  ref text not null unique default ('JOB-' || lpad(nextval('public.job_seq')::text, 4, '0')),
+  driver_id uuid references public.drivers(id) on delete set null,
+  car_id uuid references public.cars(id) on delete set null,
+  title text not null,                                   -- المطلوب باختصار
+  note text not null default '',
+  status text not null default 'received'
+    check (status in ('received', 'working', 'waiting', 'ready', 'delivered', 'cancelled')),
+  staff_id uuid references public.staff(id) on delete set null,   -- المسؤول عنها
+  due_date date,                                         -- ميعاد التسليم
+  created_by text not null default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  status_at timestamptz not null default now(),
+  delivered_at timestamptz
+);
+create index if not exists jobs_car_idx on public.jobs (car_id);
+create index if not exists jobs_status_idx on public.jobs (status, created_at desc);
+
+-- الشغل المطلوب (task) والخامات اللي اتصرفت (material)
+create table if not exists public.job_lines (
+  id uuid primary key default gen_random_uuid(),
+  job_id uuid not null references public.jobs(id) on delete cascade,
+  kind text not null check (kind in ('task', 'material')),
+  title text not null,
+  qty numeric(12,2) not null default 1 check (qty > 0),
+  unit text not null default '',
+  price_item_id uuid references public.price_items(id) on delete set null,
+  done boolean not null default false,
+  done_by text not null default '',
+  done_at timestamptz,
+  sort int not null default 0,
+  created_by text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists job_lines_job_idx on public.job_lines (job_id);
+
+-- ساعات الشغل
+create table if not exists public.job_hours (
+  id uuid primary key default gen_random_uuid(),
+  job_id uuid not null references public.jobs(id) on delete cascade,
+  staff_id uuid references public.staff(id) on delete set null,
+  staff_name text not null default '',
+  hours numeric(5,2) not null check (hours > 0 and hours <= 24),
+  work_date date not null default ((now() at time zone 'Africa/Cairo')::date),
+  note text not null default '',
+  created_by text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists job_hours_job_idx on public.job_hours (job_id);
+
+-- صور قبل / أثناء / بعد
+create table if not exists public.job_photos (
+  id uuid primary key default gen_random_uuid(),
+  job_id uuid not null references public.jobs(id) on delete cascade,
+  path text not null unique,
+  stage text not null default 'before' check (stage in ('before', 'during', 'after')),
+  created_by text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists job_photos_job_idx on public.job_photos (job_id);
+
+-- الفاتورة ممكن تبقى جاية من أمر شغل
+alter table public.invoices add column if not exists job_id uuid references public.jobs(id) on delete set null;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['jobs', 'job_lines', 'job_hours', 'job_photos'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('revoke all on public.%I from anon, authenticated', t);
+  end loop;
+end $$;
+revoke all on sequence public.job_seq from anon, authenticated;
+
+-- أمر الشغل كامل (بالشغل والخامات والساعات والصور والفاتورة لو اتعملت)
+create or replace function public._job_json(p_job uuid, p_inv boolean)
+returns jsonb language sql stable security definer set search_path = public as $$
+  select to_jsonb(j) || jsonb_build_object(
+    'lines', coalesce((select jsonb_agg(to_jsonb(l) - 'job_id' order by l.kind desc, l.sort, l.created_at)
+                         from public.job_lines l where l.job_id = j.id), '[]'::jsonb),
+    'hours', coalesce((select jsonb_agg(to_jsonb(h) - 'job_id' order by h.work_date desc, h.created_at desc)
+                         from public.job_hours h where h.job_id = j.id), '[]'::jsonb),
+    'photos', coalesce((select jsonb_agg(jsonb_build_object('id', ph.id, 'path', ph.path, 'stage', ph.stage,
+                                                            'created_by', ph.created_by, 'created_at', ph.created_at) order by ph.created_at)
+                          from public.job_photos ph where ph.job_id = j.id), '[]'::jsonb),
+    'invoice', (select case when p_inv then jsonb_build_object('id', v.id, 'ref', v.ref, 'paid', v.paid)
+                            else jsonb_build_object('ref', v.ref) end
+                  from public.invoices v where v.job_id = j.id order by v.created_at desc limit 1))
+  from public.jobs j where j.id = p_job;
+$$;
+
+create or replace function public._job_jsons(p_inv boolean)
+returns jsonb language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_agg(public._job_json(j.id, p_inv)
+                    order by (j.status in ('delivered', 'cancelled')), j.status_at desc, j.created_at desc), '[]'::jsonb)
+    from (select id, status, status_at, created_at from public.jobs where status not in ('delivered', 'cancelled')
+          union all
+          (select id, status, status_at, created_at from public.jobs where status in ('delivered', 'cancelled')
+            order by status_at desc limit 80)) j;
+$$;
+
+-- أمر شغل واحد (لو قديم ومش في الليستة)
+create or replace function public.job_get(p_token text, p_id uuid)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); r jsonb;
+begin
+  r := public._job_json(p_id, coalesce((a->>'inv')::boolean, false));
+  if r is null then raise exception 'not_found'; end if;
+  return r;
+end $$;
+
+-- كل أوامر الشغل بتاعة عربية (سجل العربية)
+create or replace function public.car_jobs(p_token text, p_car uuid)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  return coalesce((select jsonb_agg(jsonb_build_object('id', j.id, 'ref', j.ref, 'title', j.title, 'status', j.status,
+                                                       'created_at', j.created_at, 'delivered_at', j.delivered_at)
+                                    order by j.created_at desc)
+                     from public.jobs j where j.car_id = p_car), '[]'::jsonb);
+end $$;
+
+-- استلام عربية / تعديل أمر الشغل
+-- p = { driver_id, car_id, title, note, staff_id, due_date, tasks: ['...'] (في الأول بس) }
+create or replace function public.job_save(p_token text, p_id uuid, p jsonb)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare
+  a jsonb := public._actor(p_token);
+  v_car uuid := nullif(p->>'car_id', '')::uuid;
+  v_drv uuid := nullif(p->>'driver_id', '')::uuid;
+  v_staff uuid := nullif(p->>'staff_id', '')::uuid;
+  v_title text := trim(coalesce(p->>'title', ''));
+  v_due date := nullif(p->>'due_date', '')::date;
+  cd uuid; v uuid; v_ref text; t text; n int := 0;
+begin
+  if v_title = '' then raise exception 'job_title_required'; end if;
+  if v_car is not null then
+    select driver_id into cd from public.cars where id = v_car;
+    if cd is null then raise exception 'not_found'; end if;
+    if v_drv is null then v_drv := cd; elsif v_drv <> cd then raise exception 'car_mismatch'; end if;
+  end if;
+  if v_drv is not null and not exists (select 1 from public.drivers where id = v_drv) then raise exception 'not_found'; end if;
+  if v_staff is not null and not exists (select 1 from public.staff where id = v_staff and active) then raise exception 'not_found'; end if;
+  if p_id is null then
+    insert into public.jobs (driver_id, car_id, title, note, staff_id, due_date, created_by)
+    values (v_drv, v_car, v_title, trim(coalesce(p->>'note', '')), v_staff, v_due, coalesce(a->>'name', ''))
+    returning id, ref into v, v_ref;
+    if jsonb_typeof(p->'tasks') = 'array' then
+      for t in select trim(value) from jsonb_array_elements_text(p->'tasks') loop
+        continue when t = '';
+        n := n + 1;
+        insert into public.job_lines (job_id, kind, title, sort, created_by) values (v, 'task', left(t, 300), n, coalesce(a->>'name', ''));
+      end loop;
+    end if;
+  else
+    update public.jobs set driver_id = v_drv, car_id = v_car, title = v_title, note = trim(coalesce(p->>'note', '')),
+           staff_id = v_staff, due_date = v_due, updated_at = now()
+     where id = p_id returning id, ref into v, v_ref;
+    if v is null then raise exception 'not_found'; end if;
+  end if;
+  return jsonb_build_object('id', v, 'ref', v_ref);
+end $$;
+
+-- الحالة: استلمناها / شغالين / مستنية قطع / جاهزة / اتسلمت / اتلغت
+create or replace function public.job_set_status(p_token text, p_id uuid, p_status text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  if p_status not in ('received', 'working', 'waiting', 'ready', 'delivered', 'cancelled') then raise exception 'bad_status'; end if;
+  update public.jobs set status = p_status, status_at = now(), updated_at = now(),
+         delivered_at = case when p_status = 'delivered' then coalesce(delivered_at, now()) else null end
+   where id = p_id;
+  if not found then raise exception 'not_found'; end if;
+end $$;
+
+-- شغلانة أو خامة جديدة على أمر الشغل
+-- p = { kind: task|material, title, qty, unit, price_item_id }
+create or replace function public.job_line_add(p_token text, p_job uuid, p jsonb)
+returns uuid language plpgsql security definer set search_path = public, extensions as $$
+declare
+  a jsonb := public._actor(p_token);
+  v_kind text := coalesce(nullif(p->>'kind', ''), 'task');
+  v_pi uuid := nullif(p->>'price_item_id', '')::uuid;
+  v_title text := trim(coalesce(p->>'title', ''));
+  v_qty numeric := round(coalesce(nullif(p->>'qty', '')::numeric, 1), 2);
+  v_unit text := trim(coalesce(p->>'unit', ''));
+  pi public.price_items%rowtype; s int; v uuid;
+begin
+  if not exists (select 1 from public.jobs where id = p_job) then raise exception 'not_found'; end if;
+  if v_kind not in ('task', 'material') then raise exception 'bad_kind'; end if;
+  if v_pi is not null then
+    select * into pi from public.price_items where id = v_pi;
+    if not found then raise exception 'not_found'; end if;
+    if v_title = '' then v_title := pi.name; end if;
+    if v_unit = '' then v_unit := pi.unit; end if;
+  end if;
+  if v_title = '' then raise exception 'name_required'; end if;
+  if v_qty <= 0 then raise exception 'bad_qty'; end if;
+  select coalesce(max(sort), 0) + 1 into s from public.job_lines where job_id = p_job and kind = v_kind;
+  insert into public.job_lines (job_id, kind, title, qty, unit, price_item_id, sort, created_by)
+  values (p_job, v_kind, left(v_title, 300), v_qty, v_unit, v_pi, s, coalesce(a->>'name', ''))
+  returning id into v;
+  update public.jobs set updated_at = now() where id = p_job;
+  return v;
+end $$;
+
+create or replace function public.job_line_update(p_token text, p_id uuid, p jsonb)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); v_title text := trim(coalesce(p->>'title', ''));
+  v_qty numeric := round(coalesce(nullif(p->>'qty', '')::numeric, 1), 2); jid uuid;
+begin
+  if v_title = '' then raise exception 'name_required'; end if;
+  if v_qty <= 0 then raise exception 'bad_qty'; end if;
+  update public.job_lines set title = left(v_title, 300), qty = v_qty, unit = trim(coalesce(p->>'unit', unit))
+   where id = p_id returning job_id into jid;
+  if jid is null then raise exception 'not_found'; end if;
+  update public.jobs set updated_at = now() where id = jid;
+end $$;
+
+create or replace function public.job_line_done(p_token text, p_id uuid, p_done boolean)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); jid uuid;
+begin
+  update public.job_lines set done = coalesce(p_done, false),
+         done_by = case when coalesce(p_done, false) then coalesce(a->>'name', '') else '' end,
+         done_at = case when coalesce(p_done, false) then now() else null end
+   where id = p_id returning job_id into jid;
+  if jid is null then raise exception 'not_found'; end if;
+  update public.jobs set updated_at = now() where id = jid;
+end $$;
+
+create or replace function public.job_line_delete(p_token text, p_id uuid)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); jid uuid;
+begin
+  delete from public.job_lines where id = p_id returning job_id into jid;
+  if jid is not null then update public.jobs set updated_at = now() where id = jid; end if;
+end $$;
+
+-- ساعات شغل: p = { staff_id, hours, work_date, note }
+create or replace function public.job_hours_add(p_token text, p_job uuid, p jsonb)
+returns uuid language plpgsql security definer set search_path = public, extensions as $$
+declare
+  a jsonb := public._actor(p_token);
+  v_staff uuid := coalesce(nullif(p->>'staff_id', '')::uuid, nullif(a->>'id', '')::uuid);
+  v_h numeric := round(coalesce(nullif(p->>'hours', '')::numeric, 0), 2);
+  v_name text; v uuid;
+begin
+  if not exists (select 1 from public.jobs where id = p_job) then raise exception 'not_found'; end if;
+  if v_h <= 0 or v_h > 24 then raise exception 'bad_hours'; end if;
+  if v_staff is not null then
+    select name into v_name from public.staff where id = v_staff;
+    if v_name is null then raise exception 'not_found'; end if;
+  else
+    v_name := coalesce(a->>'name', '');
+  end if;
+  insert into public.job_hours (job_id, staff_id, staff_name, hours, work_date, note, created_by)
+  values (p_job, v_staff, v_name, v_h, coalesce(nullif(p->>'work_date', '')::date, (now() at time zone 'Africa/Cairo')::date),
+          trim(coalesce(p->>'note', '')), coalesce(a->>'name', ''))
+  returning id into v;
+  update public.jobs set updated_at = now() where id = p_job;
+  return v;
+end $$;
+
+create or replace function public.job_hours_delete(p_token text, p_id uuid)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); jid uuid;
+begin
+  delete from public.job_hours where id = p_id returning job_id into jid;
+  if jid is not null then update public.jobs set updated_at = now() where id = jid; end if;
+end $$;
+
+-- الصور: تذكرة رفع، وبعد الرفع تتسجل على أمر الشغل
+create or replace function public.job_photo_ticket(p_token text, p_job uuid)
+returns text language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); v text;
+begin
+  if not exists (select 1 from public.jobs where id = p_job) then raise exception 'not_found'; end if;
+  delete from public.upload_tickets where expires_at < now();
+  v := 'jobs/' || p_job::text || '/' || encode(gen_random_bytes(9), 'hex') || '.jpg';
+  insert into public.upload_tickets (path, item_id, kind) values (v, p_job, 'up');
+  return v;
+end $$;
+
+create or replace function public.job_photo_add(p_token text, p_job uuid, p_path text, p_stage text)
+returns uuid language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); v uuid;
+begin
+  if not exists (select 1 from public.upload_tickets where path = p_path and item_id = p_job and kind = 'up') then
+    raise exception 'bad_ticket';
+  end if;
+  insert into public.job_photos (job_id, path, stage, created_by)
+  values (p_job, p_path, case when p_stage in ('before', 'during', 'after') then p_stage else 'during' end, coalesce(a->>'name', ''))
+  returning id into v;
+  delete from public.upload_tickets where path = p_path;
+  update public.jobs set updated_at = now() where id = p_job;
+  return v;
+end $$;
+
+create or replace function public.job_photo_delete(p_token text, p_id uuid)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); ph text; jid uuid;
+begin
+  delete from public.job_photos where id = p_id returning path, job_id into ph, jid;
+  if ph is null then raise exception 'not_found'; end if;
+  insert into public.upload_tickets (path, kind) values (ph, 'del')
+  on conflict (path) do update set kind = 'del', expires_at = now() + interval '15 minutes';
+  update public.jobs set updated_at = now() where id = jid;
+  return jsonb_build_object('delete', ph);
+end $$;
+
+-- القطع اللي اتركبت على العربية من وقت ما دخلت لحد ما اتسلمت
+create or replace function public.job_parts(p_token text, p_job uuid)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); j public.jobs%rowtype; t_end timestamptz;
+begin
+  select * into j from public.jobs where id = p_job;
+  if not found then raise exception 'not_found'; end if;
+  if j.car_id is null then return '[]'::jsonb; end if;
+  t_end := case when j.status = 'delivered' then coalesce(j.delivered_at, j.status_at)
+                when j.status = 'cancelled' then j.status_at else now() end;
+  return coalesce((
+    select jsonb_agg(jsonb_build_object('id', m.id, 'type', m.type, 'amount', m.amount, 'note', m.note,
+                                        'created_at', m.created_at, 'actor_name', m.actor_name,
+                                        'item_id', i.id, 'code', i.code, 'name', i.name, 'size', i.size,
+                                        'garage', i.driver_id is null) order by m.id)
+      from public.moves m join public.items i on i.id = m.item_id
+     where m.car_id = j.car_id and m.type in ('install', 'trip_installed', 'removed')
+       and m.created_at >= j.created_at and m.created_at <= t_end
+  ), '[]'::jsonb);
+end $$;
+
+-- مسح أمر شغل (الإدارة بس) — الصور بتتمسح كمان
+create or replace function public.job_delete(p_token text, p_id uuid)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare paths text[];
+begin
+  perform public._need_admin();
+  select coalesce(array_agg(path), '{}') into paths from public.job_photos where job_id = p_id;
+  insert into public.upload_tickets (path, kind) select x, 'del' from unnest(paths) x
+  on conflict (path) do update set kind = 'del', expires_at = now() + interval '15 minutes';
+  delete from public.jobs where id = p_id;
+  if not found then raise exception 'not_found'; end if;
+  return jsonb_build_object('delete', to_jsonb(paths));
 end $$;
 
 -- ---------------------------------------------------------------------

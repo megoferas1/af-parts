@@ -1,5 +1,5 @@
 /* api.js — الاتصال بـ Supabase */
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=6';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=7';
 
 if (!window.supabase) throw new Error('مكتبة Supabase ما اتحمّلتش (cdn.jsdelivr.net)');
 export const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -77,11 +77,15 @@ const MSG = {
   bad_currency: 'العملة غلط',
   bad_pin: 'الرقم السري لازم يكون من 4 لـ 8 أرقام',
   bad_ticket: 'الصورة ما اترفعتش، جرّب تاني',
+  job_title_required: 'اكتب المطلوب يتعمل في العربية',
+  bad_status: 'الحالة غلط',
+  bad_hours: 'الساعات لازم تكون من ربع ساعة لـ 24 ساعة',
   not_found: 'مش لاقيينها، يمكن اتمسحت',
 };
 export function errText(e) {
   const m = (e && e.message) || String(e || '');
   for (const k in MSG) if (m.includes(k)) return MSG[k];
+  if (/Could not find the function|function public\.\w+\(.*\) does not exist|schema cache/i.test(m)) return 'لازم تشغّل ملف التحديث الأخير في Supabase الأول';
   if (/fetch|network|Failed|Load failed/i.test(m)) return 'مفيش نت أو السيرفر مش بيرد';
   return 'حصلت مشكلة: ' + m.slice(0, 90);
 }
@@ -112,6 +116,14 @@ export async function uploadPhoto(itemId, file) {
   if (error) throw error;
   const r = await call('set_photo', { p_item: itemId, p_path: path });
   if (r && r.delete) removePhotoFile(r.delete);
+}
+/* صورة على أمر شغل (قبل / أثناء / بعد) */
+export async function uploadJobPhoto(jobId, file, stage) {
+  const blob = await compressImage(file, 1400, 0.74);
+  const path = await call('job_photo_ticket', { p_job: jobId });
+  const { error } = await sb.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000', upsert: false });
+  if (error) throw error;
+  await call('job_photo_add', { p_job: jobId, p_path: path, p_stage: stage });
 }
 export function removePhotoFile(path) {
   if (!path) return;

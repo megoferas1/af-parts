@@ -1,12 +1,12 @@
 /* invoices.js — الأسعار والفواتير (للإدارة واللي الإدارة اديته الصلاحية) */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=6';
-import { call, errText } from './api.js?v=6';
-import { useStore, getStore, reload, isAdmin } from './store.js?v=6';
-import * as L from './lib.js?v=6';
-import { startNewItem, groupBy, run } from './items.js?v=6';
-import { FileReady } from './stickers.js?v=6';
-import { buildInvoicePdf, fmtMoney, fmtQty, invoiceTotals, fileFrom, safeName } from './docs.js?v=6';
-import { HeroScan } from './home.js?v=6';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=7';
+import { call, errText } from './api.js?v=7';
+import { useStore, getStore, reload, isAdmin } from './store.js?v=7';
+import * as L from './lib.js?v=7';
+import { startNewItem, groupBy, run } from './items.js?v=7';
+import { FileReady } from './stickers.js?v=7';
+import { buildInvoicePdf, fmtMoney, fmtQty, invoiceTotals, fileFrom, safeName } from './docs.js?v=7';
+import { HeroScan } from './home.js?v=7';
 
 export const PKIND = { labor: { label: 'مصنعيات', one: 'مصنعية', icon: 'wrench' }, material: { label: 'قطع وخامات', one: 'قطعة / خامة', icon: 'box' } };
 const CURS = [['EGP', 'جنيه'], ['USD', 'دولار']];
@@ -307,6 +307,7 @@ export function InvoiceForm({ id, preset, close }) {
         inv_date: date, lang, currency: cur, rate, show_rate: !!(showRate && rate), show_payment: showPay,
         bill: { name: bill.name.trim(), phone: bill.phone.trim(), address: bill.address.trim(), country: bill.country.trim(), extra: bill.extra.trim() },
         customer_id: who === 'customer' ? custId || null : null, driver_id: who === 'driver' ? driverId || null : null, shipment_id: base.shipment_id || null,
+        job_id: base.job_id || null,
         lines: lines.map(({ key, ...l }) => l), discount: discount || 0, tax_pct: tax || 0, notes, terms,
       };
       const r = await call('invoice_save', { p_id: id || null, p });
@@ -319,7 +320,7 @@ export function InvoiceForm({ id, preset, close }) {
   }
 
   const cars = driverId ? idx.carsByDriver.get(driverId) || [] : [];
-  return html`<${Sheet} title=${old ? 'تعديل ' + old.ref : 'فاتورة جديدة'} sub=${preset && preset.shipment_id ? 'من الشحنة' : ''} onClose=${close} full
+  return html`<${Sheet} title=${old ? 'تعديل ' + old.ref : 'فاتورة جديدة'} sub=${preset && preset.shipment_id ? 'من الشحنة' : preset && preset.job_id ? 'من أمر الشغل' : ''} onClose=${close} full
     footer=${html`<div class="invfoot"><div class="grow"><small>الإجمالي</small><b class="num">${money(t.total, cur)}</b></div>
       <button class="btn bigbtn" style="width:auto;padding:0 26px" disabled=${busy} onClick=${save}>${busy ? 'لحظة...' : html`<${Icon} name="check" size=${22} /> حفظ`}</button></div>`}>
 

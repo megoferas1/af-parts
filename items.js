@@ -1,14 +1,14 @@
 /* items.js — الحاجة نفسها: صفحتها، تسجيلها، دخول/خروج/جرد/تركيب، واختيار حاجات */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, toast, confirmBox, NumInput } from './ui.js?v=6';
-import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=6';
-import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=6';
-import * as L from './lib.js?v=6';
-import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=6';
-import { StickerSheet, labelFor } from './stickers.js?v=6';
-import { ScanSheet } from './qr.js?v=6';
-import { MoveRow } from './log.js?v=6';
-import { ShipmentForm } from './export.js?v=6';
-import { fmtMoney } from './docs.js?v=6';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, toast, confirmBox, NumInput } from './ui.js?v=7';
+import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=7';
+import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=7';
+import * as L from './lib.js?v=7';
+import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=7';
+import { StickerSheet, labelFor } from './stickers.js?v=7';
+import { ScanSheet } from './qr.js?v=7';
+import { MoveRow } from './log.js?v=7';
+import { ShipmentForm } from './export.js?v=7';
+import { fmtMoney } from './docs.js?v=7';
 
 /* تنفيذ عملية + تحديث + رسالة */
 export async function run(fn, okMsg) {
@@ -425,15 +425,15 @@ export function OldPartFields({ value, onChange, maxQty, src }) {
 }
 
 /* ---------- تركيب ---------- */
-export function InstallForm({ id, close }) {
+export function InstallForm({ id, carId, driverId, close }) {
   const { idx } = useStore();
   const item = idx.items.get(id);
   const [qty, setQty] = useState(item ? item.qty : 1);
-  const [car, setCar] = useState(item ? item.car_id || '' : '');
+  const [car, setCar] = useState(carId || (item ? item.car_id || '' : ''));
   const [old, setOld] = useState({ mode: '' });
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  const [drv, setDrv] = useState('');
+  const [drv, setDrv] = useState(item && !item.driver_id ? driverId || '' : '');
   if (!item) return null;
   const garage = !item.driver_id;                         // قطعة الجراش بتتركب على عربية أي سواق
   const owner = garage ? drv : item.driver_id;

@@ -1,15 +1,16 @@
 /* app.js — نقطة البداية: الدخول والتابات */
-import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=6';
-import { SUPABASE_URL } from './config.js?v=6';
-import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=6';
-import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=6';
-import { HomeTab } from './home.js?v=6';
-import { DriversTab } from './drivers.js?v=6';
-import { ToolsTab } from './tools.js?v=6';
-import { ExportTab } from './export.js?v=6';
-import { TripsTab } from './trips.js?v=6';
-import { InvoicesTab } from './invoices.js?v=6';
-import { ItemSheet, startNewItem } from './items.js?v=6';
+import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=7';
+import { SUPABASE_URL } from './config.js?v=7';
+import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=7';
+import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=7';
+import { HomeTab } from './home.js?v=7';
+import { DriversTab } from './drivers.js?v=7';
+import { ToolsTab } from './tools.js?v=7';
+import { ExportTab } from './export.js?v=7';
+import { TripsTab } from './trips.js?v=7';
+import { InvoicesTab } from './invoices.js?v=7';
+import { JobsTab, isOpenJob } from './jobs.js?v=7';
+import { ItemSheet, startNewItem } from './items.js?v=7';
 
 /* لو حصل خطأ غير متوقع نعرضه بدل شاشة بيضا */
 function showFatal(msg) {
@@ -125,8 +126,10 @@ function Main({ onLogout }) {
   }
   const active = S.data.trips.filter((t) => t.status !== 'closed').length;
   const drafts = S.data.shipments.filter((s) => s.status === 'draft').length;
+  const openJobs = S.data.jobs.filter(isOpenJob).length;
   const nav = [
     { id: 'home', icon: 'home', label: 'الرئيسية' },
+    { id: 'jobs', icon: 'clip', label: 'الشغل', badge: openJobs },
     { id: 'drivers', icon: 'car', label: 'السواقين' },
     { id: 'tools', icon: 'wrench', label: 'العدة' },
     { id: 'export', icon: 'globe', label: 'التصدير', badge: drafts },
@@ -135,6 +138,7 @@ function Main({ onLogout }) {
   ];
   return html`<div class="app">
     ${tab === 'home' && html`<${HomeTab} onGo=${setTab} onLogout=${onLogout} />`}
+    ${tab === 'jobs' && html`<${JobsTab} />`}
     ${tab === 'drivers' && html`<${DriversTab} />`}
     ${tab === 'tools' && html`<${ToolsTab} />`}
     ${tab === 'export' && html`<${ExportTab} />`}

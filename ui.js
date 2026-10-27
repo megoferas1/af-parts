@@ -54,6 +54,7 @@ const P = {
   save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>',
   refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
   dots: '<circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>',
+  clip: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
 };
 export const Icon = ({ name, size = 22, stroke = 2, class: cls }) => html`<svg class=${'ic ' + (cls || '')} width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width=${stroke} stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: P[name] || P.info }}></svg>`;
 
@@ -175,7 +176,7 @@ export function Hero({ title, sub, right, back }) {
 }
 
 export function BottomNav({ items, tab, onGo }) {
-  return html`<nav class="nav">${items.map((it) => html`<button class=${tab === it.id ? 'on' : ''} onClick=${() => onGo(it.id)}>
+  return html`<nav class=${'nav' + (items.length > 6 ? ' n7' : '')}>${items.map((it) => html`<button class=${tab === it.id ? 'on' : ''} onClick=${() => onGo(it.id)}>
     <span class="nav-ic"><${Icon} name=${it.icon} size=${23} />${it.badge > 0 && html`<i class="cnt">${it.badge > 9 ? '9+' : it.badge}</i>`}</span><span class="nav-lb">${it.label}</span></button>`)}</nav>`;
 }
 

@@ -1,12 +1,13 @@
 /* drivers.js — السواقين وعربياتهم وقطعهم */
-import { html, useState, useMemo, Icon, Empty, Spinner, Field, Chips, SearchBox, Act, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=6';
-import { call, errText } from './api.js?v=6';
-import { useStore, reload } from './store.js?v=6';
-import * as L from './lib.js?v=6';
-import { ItemRow, ItemSheet, startNewItem, run, groupBy } from './items.js?v=6';
-import { StickerSheet, labelFor, FileReady } from './stickers.js?v=6';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=6';
-import { HeroScan } from './home.js?v=6';
+import { html, useState, useMemo, Icon, Empty, Spinner, Field, Chips, SearchBox, Act, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=7';
+import { call, errText } from './api.js?v=7';
+import { useStore, reload } from './store.js?v=7';
+import * as L from './lib.js?v=7';
+import { ItemRow, ItemSheet, startNewItem, run, groupBy } from './items.js?v=7';
+import { StickerSheet, labelFor, FileReady } from './stickers.js?v=7';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=7';
+import { HeroScan } from './home.js?v=7';
+import { JobCard, JobForm, CarJobsSheet, isOpenJob } from './jobs.js?v=7';
 
 export function DriversTab() {
   const { data, idx } = useStore();
@@ -62,7 +63,7 @@ export function GaragePartsSheet({ close }) {
 }
 
 export function DriverSheet({ id, close }) {
-  const { idx } = useStore();
+  const { idx, data } = useStore();
   const d = idx.drivers.get(id);
   const [car, setCar] = useState('');
   const [showGone, setShowGone] = useState(false);
@@ -80,6 +81,8 @@ export function DriverSheet({ id, close }) {
     if (r.ok) close();
   }
   const carObj = car && idx.cars.get(car);
+  /* أوامر الشغل المفتوحة لعربياته (أو للعربية المختارة) */
+  const jobs = data.jobs.filter((j) => isOpenJob(j) && (car ? j.car_id === car : j.driver_id === id || cars.some((c) => c.id === j.car_id)));
   return html`<${Sheet} title=${d.name} sub=${d.phone || 'من غير تليفون'} onClose=${close} full>
     ${d.phone && html`<div class="row gap8">
       <a class="btn ghost sm" href=${'tel:' + d.phone}><${Icon} name="phone" size=${18} /> اتصال</a>
@@ -99,6 +102,10 @@ export function DriverSheet({ id, close }) {
       <button class="chip add" onClick=${() => openSheet(CarForm, { driverId: id, onSaved: setCar })}>+ عربية</button>
     </div>
     ${carObj && html`<button class="linkbtn" onClick=${() => openSheet(CarForm, { id: carObj.id, driverId: id })}><${Icon} name="edit" size=${15} /> تعديل ${carObj.name}</button>`}
+
+    <${SecTitle} right=${carObj ? html`<button class="linkbtn" onClick=${() => openSheet(CarJobsSheet, { carId: carObj.id })}><${Icon} name="history" size=${15} /> سجل العربية</button>` : ''}>شغل العربيات<//>
+    ${jobs.length > 0 && html`<div class="stack">${jobs.map((j) => html`<${JobCard} j=${j} key=${j.id} />`)}</div>`}
+    <button class="btn ghost sm" disabled=${!cars.length} onClick=${() => openSheet(JobForm, { preset: { driver_id: id, car_id: car || '' } })}><${Icon} name="clip" size=${18} /> ${cars.length ? 'استلام عربية في الجراش' : 'ضيف عربية الأول عشان تستلمها'}</button>
 
     <${SecTitle}>القطع اللي عندنا (${here.length})<//>
     ${here.length === 0 ? html`<${Empty} icon="car" text="مفيش قطع ليه عندنا دلوقتي" />`
