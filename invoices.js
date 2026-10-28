@@ -1,12 +1,12 @@
 /* invoices.js — الأسعار والفواتير (للإدارة واللي الإدارة اديته الصلاحية) */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=12';
-import { call, errText } from './api.js?v=12';
-import { useStore, getStore, reload, isAdmin } from './store.js?v=12';
-import * as L from './lib.js?v=12';
-import { startNewItem, groupBy, run } from './items.js?v=12';
-import { FileReady } from './stickers.js?v=12';
-import { buildInvoicePdf, fmtMoney, fmtQty, invoiceTotals, fileFrom, safeName } from './docs.js?v=12';
-import { HeroScan } from './home.js?v=12';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=13';
+import { call, errText } from './api.js?v=13';
+import { useStore, getStore, reload, isAdmin } from './store.js?v=13';
+import * as L from './lib.js?v=13';
+import { startNewItem, groupBy, run } from './items.js?v=13';
+import { FileReady } from './stickers.js?v=13';
+import { buildInvoicePdf, fmtMoney, fmtQty, invoiceTotals, fileFrom, safeName } from './docs.js?v=13';
+import { HeroScan } from './home.js?v=13';
 
 export const PKIND = { labor: { label: 'مصنعيات', one: 'مصنعية', icon: 'wrench' }, material: { label: 'قطع وخامات', one: 'قطعة / خامة', icon: 'box' } };
 const CURS = [['EGP', 'جنيه'], ['USD', 'دولار']];

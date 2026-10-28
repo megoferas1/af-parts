@@ -1,6 +1,6 @@
 /* docs.js — كشوفات PDF و Excel واستيكرات الـ QR (من غير سيرفر) */
-import { loadScript } from './api.js?v=12';
-import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=12';
+import { loadScript } from './api.js?v=13';
+import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=13';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const FONT = 'Tajawal';
@@ -303,82 +303,85 @@ export function buildXlsx(sheets) {
 }
 
 /* ===================================================================
-   استيكرات QR على ورق A4 (3 × 7 = 21 استيكر، ورق F-21 مقاس 64.5 × 40 مم من غير مسافات)
+   استيكرات QR على ورق A4 — الافتراضي ورق F-25 (3 × 8 = 24 استيكر، 64.5 × 33.8 مم من غير مسافات)
    labels = [{ code, title, sub }]
    =================================================================== */
-const COLS = 3, ROWS = 7;
-export const PER_PAGE = COLS * ROWS;
 /* مقاس الورق: كل موبايل/كمبيوتر بيطبع بيحفظ مقاسه (عشان كل طابعة بتزق شوية) */
 export const SHEET_PRESETS = {
-  'F-21': { w: 64.5, h: 40, left: 8.25, top: 8.5, gapX: 0, gapY: 0 },
-  'F-22': { w: 63.8, h: 38.1, left: 6.8, top: 15.15, gapX: 2.5, gapY: 0 },
+  'F-25': { cols: 3, rows: 8, w: 64.5, h: 33.8, left: 8.25, top: 13.3, gapX: 0, gapY: 0 },
+  'F-21': { cols: 3, rows: 7, w: 64.5, h: 40, left: 8.25, top: 8.5, gapX: 0, gapY: 0 },
+  'F-22': { cols: 3, rows: 7, w: 63.8, h: 38.1, left: 6.8, top: 15.15, gapX: 2.5, gapY: 0 },
 };
-const SHEET_KEY = 'af_sheet';
+export const SHEET_FIELDS = ['cols', 'rows', 'w', 'h', 'left', 'top', 'gapX', 'gapY'];
+const SHEET_KEY = 'af_sheet_v2';
 export function getSheet() {
   try {
     const s = JSON.parse(localStorage.getItem(SHEET_KEY) || 'null');
-    if (s && s.w > 0 && s.h > 0) return { ...SHEET_PRESETS['F-21'], ...s };
+    if (s && s.w > 0 && s.h > 0 && s.cols > 0 && s.rows > 0) return { ...SHEET_PRESETS['F-25'], ...s };
   } catch (e) { /* مفيش تخزين: الافتراضي */ }
-  return { ...SHEET_PRESETS['F-21'] };
+  return { ...SHEET_PRESETS['F-25'] };
 }
 export function saveSheet(s) {
   try { if (s) localStorage.setItem(SHEET_KEY, JSON.stringify(s)); else localStorage.removeItem(SHEET_KEY); } catch (e) { /* تجاهل */ }
 }
+export const perPage = (S = getSheet()) => S.cols * S.rows;
 const cellXY = (S, p) => {
-  const col = p % COLS, row = Math.floor(p / COLS);
+  const col = p % S.cols, row = Math.floor(p / S.cols);
   return [S.left + col * (S.w + S.gapX), S.top + row * (S.h + S.gapY)];
 };
 
-async function labelImage(lab, logo) {
-  const W = 750, H = 450; // ~300dpi
+/* H بيتحسب من نسبة الاستيكر، والتصميم معمول على 450 فبيتصغّر بـ k */
+async function labelImage(lab, logo, H = 450) {
+  const W = 750, k = H / 450; // ~300dpi
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d');
   g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
   // QR على الشمال
   const qr = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.src = qrDataUrl(qrText(lab.code), 400); });
-  const qs = 380;
+  const qs = Math.round(380 * k);
   g.drawImage(qr, 22, (H - qs) / 2, qs, qs);
   // النصوص على اليمين
   const x0 = 22 + qs + 18, x1 = W - 26, tw = x1 - x0;
   g.direction = 'rtl'; g.textAlign = 'right'; g.fillStyle = '#111';
   if (logo) {
-    const lh = 104, lw = lh * (logo.width / logo.height);
-    g.drawImage(logo, x1 - lw, 26, lw, lh);
+    const lh = 104 * k, lw = lh * (logo.width / logo.height);
+    g.drawImage(logo, x1 - lw, 26 * k, lw, lh);
   }
   g.direction = 'ltr'; g.textAlign = 'center';
-  let cs = 58;   // كود قطعة التصدير أطول (AF-ANG-001-0007) فبيصغر لحد ما يدخل
+  let cs = Math.round(58 * k);   // كود قطعة التصدير أطول (AF-ANG-001-0007) فبيصغر لحد ما يدخل
   g.font = `800 ${cs}px ${FONT}, Arial, sans-serif`;
-  while (g.measureText(lab.code).width > tw && cs > 30) { cs -= 2; g.font = `800 ${cs}px ${FONT}, Arial, sans-serif`; }
-  g.fillText(lab.code, x0 + tw / 2, 196);
+  while (g.measureText(lab.code).width > tw && cs > 26) { cs -= 2; g.font = `800 ${cs}px ${FONT}, Arial, sans-serif`; }
+  g.fillText(lab.code, x0 + tw / 2, 196 * k);
   g.direction = 'rtl'; g.textAlign = 'right';
   const fit = (text, size, weight, yy) => {
-    let s = size;
+    let s = Math.round(size * k);
     g.font = `${weight} ${s}px ${FONT}, Tahoma, sans-serif`;
     while (g.measureText(text).width > tw && s > 22) { s -= 2; g.font = `${weight} ${s}px ${FONT}, Tahoma, sans-serif`; }
     let t = text;
     while (g.measureText(t).width > tw && t.length > 2) t = t.slice(0, -2) + '…';
-    g.fillText(t, x1, yy);
+    g.fillText(t, x1, yy * k);
   };
-  if (lab.title) fit(lab.title, 40, 700, 268); else { g.strokeStyle = '#bbb'; g.lineWidth = 3; g.beginPath(); g.moveTo(x0, 280); g.lineTo(x1, 280); g.stroke(); }
-  if (lab.sub) { g.fillStyle = '#555'; fit(lab.sub, 32, 500, 324); } else if (!lab.title) { g.beginPath(); g.moveTo(x0, 350); g.lineTo(x1, 350); g.stroke(); }
+  if (lab.title) fit(lab.title, 40, 700, 268); else { g.strokeStyle = '#bbb'; g.lineWidth = 3; g.beginPath(); g.moveTo(x0, 280 * k); g.lineTo(x1, 280 * k); g.stroke(); }
+  if (lab.sub) { g.fillStyle = '#555'; fit(lab.sub, 32, 500, 324); } else if (!lab.title) { g.beginPath(); g.moveTo(x0, 350 * k); g.lineTo(x1, 350 * k); g.stroke(); }
   if (lab.extra) { g.fillStyle = '#555'; fit(lab.extra, 30, 500, 372); }
   return c.toDataURL('image/jpeg', 0.92);
 }
 
 /* start: أول مربع فاضي في الورقة (0 = أول مربع)، عشان الورقة اللي اتطبع منها قبل كده تكمل */
 export async function buildStickersPdf(labels, onProgress, start = 0) {
-  const S = getSheet();
+  const S = getSheet(), per = perPage(S);
+  const H = Math.round(750 * (S.h - 4) / (S.w - 4));
   await Promise.all([fontsReady(), loadQrGen()]);
   const logo = await loadLogo('logo-report.png');
   const jsPDF = await jsPDFCtor();
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
   const cache = new Map();   // نفس الكود كذا نسخة بيترسم مرة واحدة
   for (let i = 0; i < labels.length; i++) {
-    const p = (i + start) % PER_PAGE;
+    const p = (i + start) % per;
     if (i > 0 && p === 0) doc.addPage();
     const [x, y] = cellXY(S, p);
     const key = JSON.stringify(labels[i]);
-    if (!cache.has(key)) cache.set(key, await labelImage(labels[i], logo));
+    if (!cache.has(key)) cache.set(key, await labelImage(labels[i], logo, H));
     const img = cache.get(key);
     doc.addImage(img, 'JPEG', x + 2, y + 2, S.w - 4, S.h - 4, undefined, 'FAST');
     if (onProgress) onProgress(i + 1, labels.length);
@@ -391,7 +394,7 @@ export async function buildSheetTestPdf(S = getSheet()) {
   const jsPDF = await jsPDFCtor();
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
   doc.setDrawColor(0); doc.setLineWidth(0.3); doc.setFontSize(14); doc.setTextColor(0);
-  for (let p = 0; p < PER_PAGE; p++) {
+  for (let p = 0; p < perPage(S); p++) {
     const [x, y] = cellXY(S, p);
     doc.rect(x, y, S.w, S.h);
     doc.line(x + S.w / 2 - 3, y + S.h / 2, x + S.w / 2 + 3, y + S.h / 2);
