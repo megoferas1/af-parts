@@ -585,3 +585,4 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 .dcard.faded { opacity: .55; }
 .unitchip.pick.on { border-color: var(--red); background: #fff1f1; color: var(--red); }
 .unitchip.pick.on small { color: var(--red); }
+.nudge { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

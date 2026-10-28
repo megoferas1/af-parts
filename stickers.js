@@ -1,9 +1,9 @@
 /* stickers.js — طباعة استيكرات الـ QR */
-import { html, useState, useEffect, Icon, Sheet, SecTitle, Chips, Spinner, Stepper, Field, toast } from './ui.js?v=11';
-import { call, errText, canShareFile, shareFile, downloadFile } from './api.js?v=11';
-import { ownerText } from './store.js?v=11';
-import { buildStickersPdf, fileFrom, PER_PAGE } from './docs.js?v=11';
-import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=11';
+import { html, useState, useEffect, Icon, Sheet, SecTitle, Chips, Spinner, Stepper, Field, NumInput, openSheet, toast } from './ui.js?v=12';
+import { call, errText, canShareFile, shareFile, downloadFile } from './api.js?v=12';
+import { ownerText } from './store.js?v=12';
+import { buildStickersPdf, buildSheetTestPdf, getSheet, saveSheet, SHEET_PRESETS, fileFrom, PER_PAGE } from './docs.js?v=12';
+import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=12';
 
 export function labelFor(item, idx) {
   return {
@@ -33,6 +33,7 @@ export function StickerSheet({ labels: base, title, copies, close }) {
   const [file, setFile] = useState(null);
   const [prog, setProg] = useState(null);
   const [pv, setPv] = useState('');
+  const [sheet, setSheet] = useState(getSheet);
   useEffect(() => { loadQrGen().then(() => base[0] && setPv(qrDataUrl(qrText(base[0].code), 240))).catch(() => {}); }, []);
   const labels = copies && base.length === 1 ? Array.from({ length: n }, () => base[0]) : base;
   const pages = Math.ceil((labels.length + start) / PER_PAGE);
@@ -58,7 +59,8 @@ export function StickerSheet({ labels: base, title, copies, close }) {
     <${Field} label="تبدأ من أنهي مربع في الورقة؟" hint="لو الورقة اتطبع منها قبل كده، دوس على أول مربع فاضي">
       <div class="sheetpick">${Array.from({ length: PER_PAGE }, (_, i) => html`<button type="button" key=${i}
         class=${i < start ? 'used' : i < start + labels.length ? 'fill' : ''} onClick=${() => reset(setStart)(i)}>${i < start ? '' : i < start + labels.length ? '●' : ''}</button>`)}</div><//>
-    <div class="note info"><${Icon} name="printer" size=${18} /><span>ورق استيكر A4 فيه <b>21 استيكر (F-21: 64.5 × 40 مم)</b>، واطبع بمقاس <b>100% / Actual size</b>.</span></div>
+    <div class="note info"><${Icon} name="printer" size=${18} /><span>ورق استيكر A4 فيه 21 استيكر، والمقاس المتظبط دلوقتي <b class="ltr-t">${sheet.w} × ${sheet.h}</b> مم. اطبع بمقاس <b>100% / Actual size</b>.</span></div>
+    <button class="btn ghost sm" onClick=${() => openSheet(SheetSetup, { onSaved: (v) => { setSheet(v); setFile(null); } })}><${Icon} name="settings" size=${18} /> الطباعة مش جاية على الاستيكر؟ ظبّط المقاس</button>
     ${file ? html`<${FileReady} file=${file} text="استيكرات AF Parts" />`
       : prog ? html`<div class="center-t"><${Spinner} /><div class="soft">بجهّز ${prog[0]} من ${prog[1]}...</div></div>`
         : html`<button class="btn bigbtn" onClick=${make}><${Icon} name="printer" size=${22} /> جهّز ملف الطباعة</button>`}
@@ -126,5 +128,47 @@ export function BlankStickersSheet({ close }) {
     <div class="field"><span class="lbl">كام ورقة؟</span>
       <${Chips} items=${[[1, 'ورقة (21)'], [2, '2 ورق (42)'], [3, '3 ورق (63)'], [5, '5 ورق (105)']]} value=${n} onChange=${setN} /></div>
     <button class="btn" disabled=${busy} onClick=${reserve}>${busy ? 'لحظة...' : html`<${Icon} name="plus" size=${20} /> اعمل ${n * PER_PAGE} كود جديد`}</button>
+  <//>`;
+}
+
+/* ظبط مقاس ورق الاستيكر: بيتحفظ على الجهاز اللي بيطبع (كل طابعة بتزق شوية) */
+export function SheetSetup({ onSaved, close }) {
+  const [v, setV] = useState(getSheet);
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const put = (k) => (x) => { setV((o) => ({ ...o, [k]: x == null ? 0 : Math.round(x * 10) / 10 })); setFile(null); };
+  const nudge = (k, d) => put(k)(Math.max(0, (v[k] || 0) + d));
+  const preset = Object.keys(SHEET_PRESETS).find((k) => ['w', 'h', 'left', 'top', 'gapX', 'gapY'].every((f) => SHEET_PRESETS[k][f] === v[f])) || '';
+  async function test() {
+    setBusy(true);
+    try { setFile(fileFrom(await buildSheetTestPdf(v), 'AF-Parts-test-sheet.pdf')); } catch (e) { toast('مقدرتش أجهّز الورقة: ' + errText(e), 'bad'); }
+    setBusy(false);
+  }
+  function save() { saveSheet(v); toast('اتحفظ المقاس ✓'); if (onSaved) onSaved(v); close(); }
+  const num = (k, label) => html`<${Field} label=${label}><${NumInput} value=${v[k]} onChange=${put(k)} /><//>`;
+  return html`<${Sheet} title="ظبط مقاس ورق الاستيكر" sub="المقاس ده بيتحفظ على الجهاز ده بس" onClose=${close}
+    footer=${html`<button class="btn bigbtn" onClick=${save}><${Icon} name="check" size=${22} /> حفظ المقاس</button>`}>
+    <div class="steps">
+      <div><b>١</b><span>اطبع «ورقة تجربة» على ورق عادي، بمقاس 100%.</span></div>
+      <div><b>٢</b><span>قيس المسطرة اللي في المربع رقم 2: لازم تبقى 5 سم بالظبط. لو أقل، الطابعة بتصغّر، وظبّطها على 100%.</span></div>
+      <div><b>٣</b><span>حط الورقة فوق ورق الاستيكر قدام النور، وزق الطباعة بالأسهم لحد ما المربعات تيجي على الاستيكرات.</span></div>
+    </div>
+    <${Field} label="نوع الورق"><${Chips} items=${Object.keys(SHEET_PRESETS).map((k) => [k, k])} value=${preset} onChange=${(k) => { setV({ ...SHEET_PRESETS[k] }); setFile(null); }} /><//>
+    <${SecTitle}>زق الطباعة (1 مم كل دوسة)<//>
+    <div class="nudge">
+      <button class="btn ghost sm" onClick=${() => nudge('top', -1)}>⬆ لفوق</button>
+      <button class="btn ghost sm" onClick=${() => nudge('top', 1)}>⬇ لتحت</button>
+      <button class="btn ghost sm" onClick=${() => nudge('left', 1)}>➡ يمين</button>
+      <button class="btn ghost sm" onClick=${() => nudge('left', -1)}>⬅ شمال</button>
+    </div>
+    <${SecTitle}>المقاسات بالمللي (لو قستها بالمسطرة)<//>
+    <div class="grid2">
+      ${num('w', 'عرض الاستيكر')}${num('h', 'طول الاستيكر')}
+      ${num('top', 'من فوق الورقة لأول استيكر')}${num('left', 'من شمال الورقة لأول استيكر')}
+      ${num('gapX', 'المسافة بين العواميد')}${num('gapY', 'المسافة بين الصفوف')}
+    </div>
+    ${file ? html`<${FileReady} file=${file} text="ورقة تجربة الاستيكرات" />`
+      : html`<button class="btn dark" disabled=${busy} onClick=${test}><${Icon} name="printer" size=${20} /> ${busy ? 'لحظة...' : 'اطبع ورقة تجربة'}</button>`}
+    <button class="linkbtn" onClick=${() => { setV({ ...SHEET_PRESETS['F-21'] }); setFile(null); }}>رجّع المقاس الأصلي (F-21)</button>
   <//>`;
 }

@@ -1,6 +1,6 @@
 /* docs.js — كشوفات PDF و Excel واستيكرات الـ QR (من غير سيرفر) */
-import { loadScript } from './api.js?v=11';
-import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=11';
+import { loadScript } from './api.js?v=12';
+import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=12';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const FONT = 'Tajawal';
@@ -306,8 +306,28 @@ export function buildXlsx(sheets) {
    استيكرات QR على ورق A4 (3 × 7 = 21 استيكر، ورق F-21 مقاس 64.5 × 40 مم من غير مسافات)
    labels = [{ code, title, sub }]
    =================================================================== */
-const SHEET = { cols: 3, rows: 7, w: 64.5, h: 40, left: 8.25, top: 8.5, gapX: 0 };
-export const PER_PAGE = SHEET.cols * SHEET.rows;
+const COLS = 3, ROWS = 7;
+export const PER_PAGE = COLS * ROWS;
+/* مقاس الورق: كل موبايل/كمبيوتر بيطبع بيحفظ مقاسه (عشان كل طابعة بتزق شوية) */
+export const SHEET_PRESETS = {
+  'F-21': { w: 64.5, h: 40, left: 8.25, top: 8.5, gapX: 0, gapY: 0 },
+  'F-22': { w: 63.8, h: 38.1, left: 6.8, top: 15.15, gapX: 2.5, gapY: 0 },
+};
+const SHEET_KEY = 'af_sheet';
+export function getSheet() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SHEET_KEY) || 'null');
+    if (s && s.w > 0 && s.h > 0) return { ...SHEET_PRESETS['F-21'], ...s };
+  } catch (e) { /* مفيش تخزين: الافتراضي */ }
+  return { ...SHEET_PRESETS['F-21'] };
+}
+export function saveSheet(s) {
+  try { if (s) localStorage.setItem(SHEET_KEY, JSON.stringify(s)); else localStorage.removeItem(SHEET_KEY); } catch (e) { /* تجاهل */ }
+}
+const cellXY = (S, p) => {
+  const col = p % COLS, row = Math.floor(p / COLS);
+  return [S.left + col * (S.w + S.gapX), S.top + row * (S.h + S.gapY)];
+};
 
 async function labelImage(lab, logo) {
   const W = 750, H = 450; // ~300dpi
@@ -347,6 +367,7 @@ async function labelImage(lab, logo) {
 
 /* start: أول مربع فاضي في الورقة (0 = أول مربع)، عشان الورقة اللي اتطبع منها قبل كده تكمل */
 export async function buildStickersPdf(labels, onProgress, start = 0) {
+  const S = getSheet();
   await Promise.all([fontsReady(), loadQrGen()]);
   const logo = await loadLogo('logo-report.png');
   const jsPDF = await jsPDFCtor();
@@ -355,14 +376,34 @@ export async function buildStickersPdf(labels, onProgress, start = 0) {
   for (let i = 0; i < labels.length; i++) {
     const p = (i + start) % PER_PAGE;
     if (i > 0 && p === 0) doc.addPage();
-    const col = p % SHEET.cols, row = Math.floor(p / SHEET.cols);
-    const x = SHEET.left + col * (SHEET.w + SHEET.gapX), y = SHEET.top + row * SHEET.h;
+    const [x, y] = cellXY(S, p);
     const key = JSON.stringify(labels[i]);
     if (!cache.has(key)) cache.set(key, await labelImage(labels[i], logo));
     const img = cache.get(key);
-    doc.addImage(img, 'JPEG', x + 2, y + 2, SHEET.w - 4, SHEET.h - 4, undefined, 'FAST');
+    doc.addImage(img, 'JPEG', x + 2, y + 2, S.w - 4, S.h - 4, undefined, 'FAST');
     if (onProgress) onProgress(i + 1, labels.length);
   }
+  return doc.output('blob');
+}
+
+/* ورقة تجربة: مربعات الاستيكرات بالمقاس اللي متسجل + مسطرة 50 مم عشان نتأكد إن الطابعة مش بتصغّر */
+export async function buildSheetTestPdf(S = getSheet()) {
+  const jsPDF = await jsPDFCtor();
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+  doc.setDrawColor(0); doc.setLineWidth(0.3); doc.setFontSize(14); doc.setTextColor(0);
+  for (let p = 0; p < PER_PAGE; p++) {
+    const [x, y] = cellXY(S, p);
+    doc.rect(x, y, S.w, S.h);
+    doc.line(x + S.w / 2 - 3, y + S.h / 2, x + S.w / 2 + 3, y + S.h / 2);
+    doc.line(x + S.w / 2, y + S.h / 2 - 3, x + S.w / 2, y + S.h / 2 + 3);
+    doc.text(String(p + 1), x + 3, y + 7);
+  }
+  // مسطرة 50 مم جوه المربع رقم 2 (عشان نتأكد إن الطابعة مش بتصغّر)
+  const [cx, cy] = cellXY(S, 1);
+  const rx = cx + (S.w - 50) / 2, ry = cy + S.h - 8;
+  doc.setLineWidth(0.4); doc.line(rx, ry, rx + 50, ry);
+  for (let k = 0; k <= 50; k += 5) doc.line(rx + k, ry, rx + k, ry - (k % 10 ? 1.5 : 3));
+  doc.setFontSize(8); doc.text('50 mm', rx + 25, ry + 4, { align: 'center' });
   return doc.output('blob');
 }
 
