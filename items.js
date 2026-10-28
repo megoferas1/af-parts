@@ -1,15 +1,15 @@
 /* items.js — الحاجة نفسها: صفحتها، تسجيلها، دخول/خروج/جرد/تركيب، واختيار حاجات */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, closeAllSheets, toast, confirmBox, NumInput } from './ui.js?v=10';
-import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=10';
-import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=10';
-import * as L from './lib.js?v=10';
-import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=10';
-import { StickerSheet, labelFor } from './stickers.js?v=10';
-import { ScanSheet } from './qr.js?v=10';
-import { MoveRow } from './log.js?v=10';
-import { ShipmentForm } from './export.js?v=10';
-import { fmtMoney } from './docs.js?v=10';
-import { UnitsBlock, MakeSheet, makeUnits, unitLabel } from './units.js?v=10';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, closeAllSheets, toast, confirmBox, NumInput } from './ui.js?v=11';
+import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=11';
+import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=11';
+import * as L from './lib.js?v=11';
+import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=11';
+import { StickerSheet, labelFor } from './stickers.js?v=11';
+import { ScanSheet } from './qr.js?v=11';
+import { MoveRow } from './log.js?v=11';
+import { ShipmentForm } from './export.js?v=11';
+import { fmtMoney } from './docs.js?v=11';
+import { UnitsBlock, MakeSheet, makeUnits, unitLabel } from './units.js?v=11';
 
 /* تنفيذ عملية + تحديث + رسالة */
 export async function run(fn, okMsg) {
@@ -134,7 +134,7 @@ export function ItemSheet({ id, close }) {
     : K === 'part' ? html`<div class="acts a3 big">
         <${Act} icon="wrench" label="تركيب" tone="dark" disabled=${item.qty < 1} onClick=${() => openSheet(InstallForm, { id })} />
         <${Act} icon="out" label="خروج" tone="red" disabled=${item.qty < 1} onClick=${() => openSheet(OutChooser, { id, type: 'out' })} />
-        <${Act} icon="printer" label="استيكر" onClick=${() => openSheet(StickerSheet, { labels: [labelFor(item, idx)], title: 'استيكر ' + item.code, copies: true })} />
+        <${Act} icon="printer" label="استيكر" onClick=${() => openSheet(StickerSheet, { labels: [labelFor(item, idx)], title: 'استيكر ' + item.code, copies: item.qty || 1 })} />
       </div>
       <${SmallActs} id=${id} />`
     : html`<div class="acts a3 big">
@@ -178,7 +178,7 @@ function SmallActs({ id }) {
       <${Act} icon="edit" label="تعديل" onClick=${() => go(ItemForm, { id })} />
       <label class=${'act ' + (busy ? 'disabled' : '')}><span class="act-ic">${busy ? html`<div class="spin sm"></div>` : html`<${Icon} name="camera" size=${24} />`}</span><span class="act-lb">${item.photo_path ? 'غيّر الصورة' : 'صورة'}</span>
         <input type="file" accept="image/*" capture="environment" hidden onChange=${onPhoto} /></label>
-      ${K === 'tool' && item.code && html`<${Act} icon="printer" label="استيكر" onClick=${() => go(StickerSheet, { labels: [labelFor(item, idx)], title: 'استيكر ' + item.code, copies: true })} />`}
+      ${K === 'tool' && item.code && html`<${Act} icon="printer" label="استيكر" onClick=${() => go(StickerSheet, { labels: [labelFor(item, idx)], title: 'استيكر ' + item.code, copies: item.qty || 1 })} />`}
       ${isAdmin() && html`<${Act} icon="trash" label="مسح" onClick=${del} />`}
     </div>`;
 }
@@ -270,6 +270,22 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
     if (photo) {
       try { await uploadPhoto(res.id, photo); } catch (e) { toast('اتسجلت، بس الصورة ما اترفعتش', 'bad'); }
     }
+    /* العدد اتغير من صفحة التعديل: الزيادة دخول، والنقص جرد — والاتنين بيتسجلوا في السجل */
+    if (id && f.qty !== old.qty) {
+      const d = f.qty - old.qty;
+      try {
+        if (kind === 'product' && d > 0) { setBusy(false); close(); await makeUnits(getStore().idx.items.get(id) || old, d); return; }
+        await call('item_move', { p_item: id, p_type: d > 0 ? 'in' : 'adjust', p_qty: d > 0 ? d : f.qty, p_note: 'من صفحة التعديل' });
+        /* الزيادة: استيكر لكل قطعة جديدة بنفس الكود */
+        if (d > 0 && old.code) {
+          await reload().catch(() => {});
+          setBusy(false); close(); toast('اتحفظ');
+          const it = getStore().idx.items.get(id) || old;
+          openSheet(StickerSheet, { labels: [labelFor(it, getStore().idx)], title: 'استيكرات ' + it.name, copies: d });
+          return;
+        }
+      } catch (e) { toast('اتحفظ، بس العدد ما اتغيرش: ' + errText(e), 'bad'); }
+    }
     await reload().catch(() => {});
     setBusy(false);
     if (id) { toast('اتحفظ'); close(); return; }
@@ -277,18 +293,21 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
     /* منتج جديد بعدد: كل قطعة خدت كود، فاستيكراتهم تطلع على طول */
     const newUnits = kind === 'product' ? (getStore().idx.unitsByItem.get(res.id) || []) : [];
     const printUnits = () => { const it = getStore().idx.items.get(res.id); if (it && newUnits.length) openSheet(StickerSheet, { labels: newUnits.map((u) => unitLabel(u.code, it)), title: 'استيكرات ' + it.name }); };
+    /* قطعة أو عدة جديدة بعدد: استيكر لكل واحدة بنفس الكود (لو جت من استيكر فاضي، الباقي بس) */
+    const extra = kind !== 'product' && res.code ? (f.qty || 1) - (code ? 1 : 0) : 0;
+    const printCopies = () => { const it = getStore().idx.items.get(res.id); if (it && extra > 0) openSheet(StickerSheet, { labels: [labelFor(it, getStore().idx)], title: 'استيكرات ' + it.name, copies: extra }); };
     if (mode === 'again') {
       setF((x) => ({ ...x, name: '', name_en: '', size: '', qty: kind === 'product' ? 0 : 1, note: '', price: null,
         part_no: kind === 'product' ? nextPartNo(x.category || '') : '' }));
       setPhoto(null); setPreview('');
-      printUnits();
+      printUnits(); printCopies();
       return;
     }
     close();
     if (onCreated) { onCreated(res.id, f.qty); return; }
     if (mode === 'scan' && scanNext) { scanNext(); return; }
     openSheet(ItemSheet, { id: res.id });
-    printUnits();
+    printUnits(); printCopies();
   }
 
   const title = id ? 'تعديل ' + old.name : kind === 'part' && garage ? 'تسجيل قطعة للجراش' : 'تسجيل ' + L.KIND[kind].label;
@@ -335,6 +354,10 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
     <${Field} label=${kind === 'product' ? 'المقاس / الموديل' : 'المقاس / المواصفات'} hint="مثلاً: 8kg، 6 inch، 18×9.5، E36">
       <input class="input" value=${f.size} onInput=${(e) => set('size', e.target.value)} /><//>
     ${!id && html`<${Field} label=${kind === 'product' ? 'عندنا كام قطعة جاهزة دلوقتي؟' : 'العدد'} hint=${kind === 'product' ? 'كل قطعة هتاخد كود لوحدها واستيكرها هيطلعلك. لو لسه ما اتصنعش، سيبها 0' : ''}><${Stepper} value=${f.qty} min=${kind === 'product' ? 0 : 1} onChange=${(v) => set('qty', v)} big /><//>`}
+    ${id && html`<${Field} label="العدد اللي عندنا" hint=${f.qty === old.qty ? `دلوقتي ${old.qty}. غيّره لو العدد الحقيقي مختلف، والتغيير هيتسجل في السجل باسمك.`
+        : f.qty > old.qty ? `هيزيد ${f.qty - old.qty}${kind === 'product' ? '، وكل قطعة جديدة هتاخد كود واستيكرها هيطلعلك' : ''}`
+        : `هيقل ${old.qty - f.qty}${kind === 'product' ? '. أقدم القطع هتتسجل إنها خرجت؛ لو قطعة معينة اتسجلت بالغلط امسحها من صفحتها أحسن' : ''}`}>
+      <${Stepper} value=${f.qty} min=${0} onChange=${(v) => set('qty', v)} big /><//>`}
     <${SecTitle}>تفاصيل (اختياري)<//>
     ${kind === 'product' && html`<${Field} label="رقم القطعة (Part No.)" hint=${id ? 'بيظهر في الفاتورة والـ Packing List' : 'الابلكيشن بيعمله لوحده من نوع المنتج: اختار النوع وهو يتظبط، أو غيّره بإيدك'}>
       <div class="row gap8">

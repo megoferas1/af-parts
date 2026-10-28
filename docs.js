@@ -1,6 +1,6 @@
 /* docs.js — كشوفات PDF و Excel واستيكرات الـ QR (من غير سيرفر) */
-import { loadScript } from './api.js?v=10';
-import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=10';
+import { loadScript } from './api.js?v=11';
+import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=11';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const FONT = 'Tajawal';
@@ -303,10 +303,10 @@ export function buildXlsx(sheets) {
 }
 
 /* ===================================================================
-   استيكرات QR على ورق A4 (3 × 7 = 21 استيكر، مقاس 63.5 × 38.1 مم)
+   استيكرات QR على ورق A4 (3 × 7 = 21 استيكر، ورق F-21 مقاس 64.5 × 40 مم من غير مسافات)
    labels = [{ code, title, sub }]
    =================================================================== */
-const SHEET = { cols: 3, rows: 7, w: 63.5, h: 38.1, left: 7.25, top: 15.15, gapX: 2.5 };
+const SHEET = { cols: 3, rows: 7, w: 64.5, h: 40, left: 8.25, top: 8.5, gapX: 0 };
 export const PER_PAGE = SHEET.cols * SHEET.rows;
 
 async function labelImage(lab, logo) {
@@ -360,7 +360,7 @@ export async function buildStickersPdf(labels, onProgress, start = 0) {
     const key = JSON.stringify(labels[i]);
     if (!cache.has(key)) cache.set(key, await labelImage(labels[i], logo));
     const img = cache.get(key);
-    doc.addImage(img, 'JPEG', x + 1.2, y + 1.2, SHEET.w - 2.4, SHEET.h - 2.4, undefined, 'FAST');
+    doc.addImage(img, 'JPEG', x + 2, y + 2, SHEET.w - 4, SHEET.h - 4, undefined, 'FAST');
     if (onProgress) onProgress(i + 1, labels.length);
   }
   return doc.output('blob');
