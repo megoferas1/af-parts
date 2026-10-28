@@ -1,18 +1,18 @@
 /* app.js — نقطة البداية: الدخول والتابات */
-import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=9';
-import { SUPABASE_URL } from './config.js?v=9';
-import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=9';
-import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=9';
-import { HomeTab } from './home.js?v=9';
-import { DriversTab } from './drivers.js?v=9';
-import { ToolsTab } from './tools.js?v=9';
-import { ExportTab } from './export.js?v=9';
-import { TripsTab } from './trips.js?v=9';
-import { InvoicesTab } from './invoices.js?v=9';
-import { JobsTab, isOpenJob } from './jobs.js?v=9';
-import { ItemSheet, startNewItem } from './items.js?v=9';
-import { CODE_RE } from './qr.js?v=9';
-import { UnitSheet } from './units.js?v=9';
+import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=10';
+import { SUPABASE_URL } from './config.js?v=10';
+import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=10';
+import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=10';
+import { HomeTab } from './home.js?v=10';
+import { DriversTab } from './drivers.js?v=10';
+import { ToolsTab } from './tools.js?v=10';
+import { ExportTab } from './export.js?v=10';
+import { TripsTab } from './trips.js?v=10';
+import { InvoicesTab } from './invoices.js?v=10';
+import { JobsTab, isOpenJob } from './jobs.js?v=10';
+import { ItemSheet, startNewItem } from './items.js?v=10';
+import { CODE_RE } from './qr.js?v=10';
+import { UnitSheet } from './units.js?v=10';
 
 /* لو حصل خطأ غير متوقع نعرضه بدل شاشة بيضا */
 function showFatal(msg) {

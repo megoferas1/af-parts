@@ -1,12 +1,12 @@
 /* tools.js — عدة الجراش + الليستات الجاهزة */
-import { html, useState, useMemo, Icon, Empty, Field, Stepper, SearchBox, Sheet, Hero, openSheet, toast, confirmBox } from './ui.js?v=9';
-import { call, errText } from './api.js?v=9';
-import { useStore, reload, ownerText } from './store.js?v=9';
-import * as L from './lib.js?v=9';
-import { ItemRow, ItemPicker, startNewItem, groupBy, run } from './items.js?v=9';
-import { tripGroups } from './trips.js?v=9';
-import { StickerSheet, labelFor } from './stickers.js?v=9';
-import { HeroScan } from './home.js?v=9';
+import { html, useState, useMemo, Icon, Empty, Field, Stepper, SearchBox, Sheet, Hero, openSheet, toast, confirmBox } from './ui.js?v=10';
+import { call, errText } from './api.js?v=10';
+import { useStore, reload, ownerText } from './store.js?v=10';
+import * as L from './lib.js?v=10';
+import { ItemRow, ItemPicker, startNewItem, groupBy, run } from './items.js?v=10';
+import { tripGroups } from './trips.js?v=10';
+import { StickerSheet, labelFor } from './stickers.js?v=10';
+import { HeroScan } from './home.js?v=10';
 
 export function ToolsTab({ back }) {
   const { idx, data } = useStore();

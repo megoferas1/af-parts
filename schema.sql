@@ -620,6 +620,17 @@ begin
   return res;
 end $$;
 
+-- الأكواد الفاضية اللي لسه مش متسجلة على أي حاجة (عشان تتطبع تاني)
+create or replace function public.blank_codes(p_token text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  return coalesce((select jsonb_agg(c.code order by c.code) from public.codes c
+                    where not c.used
+                      and not exists (select 1 from public.items i where i.code = c.code)
+                      and not exists (select 1 from public.units u where u.code = c.code)), '[]'::jsonb);
+end $$;
+
 create or replace function public.code_info(p_token text, p_code text)
 returns jsonb language plpgsql security definer set search_path = public, extensions as $$
 declare a jsonb := public._actor(p_token); v text := upper(trim(coalesce(p_code, ''))); iid uuid;
@@ -1340,7 +1351,7 @@ begin
          and (f_to is null or (mv.created_at at time zone 'Africa/Cairo')::date <= f_to)
          and (f_before is null or mv.id < f_before)
          and (f_group = ''
-              or (f_group = 'io' and mv.type in ('create', 'make', 'in', 'out', 'adjust', 'ship'))
+              or (f_group = 'io' and mv.type in ('create', 'make', 'unmake', 'in', 'out', 'adjust', 'ship'))
               or (f_group = 'install' and mv.type in ('install', 'removed', 'trip_installed'))
               or (f_group = 'trip' and left(mv.type, 5) = 'trip_')
               or (f_group = 'edit' and mv.type in ('move', 'cond', 'edit')))
@@ -2111,6 +2122,26 @@ begin
   update public.units set status = 'out', out_at = now(), note = trim(coalesce(p_note, '')) where id = p_unit;
   update public.items set qty = qty - 1, updated_at = now() where id = u.item_id;
   perform public._log(u.item_id, 'out', -1, 1, concat_ws(' — ', u.code, nullif(trim(coalesce(p_note, '')), '')), a);
+end $$;
+
+-- مسح قطعة اتسجلت بالغلط: بتتشال خالص (والكود ما بيترجعش يتستخدم تاني)
+create or replace function public.unit_delete(p_token text, p_unit uuid)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); u public.units%rowtype; sh uuid;
+begin
+  select * into u from public.units where id = p_unit for update;
+  if not found then raise exception 'not_found'; end if;
+  if u.status = 'shipped' then raise exception 'unit_shipped'; end if;
+  perform 1 from public.items where id = u.item_id for update;
+  select shipment_id into sh from public.shipment_units where unit_id = p_unit;
+  delete from public.units where id = p_unit;
+  if sh is not null then perform public._ship_fix(sh, u.item_id); end if;
+  if u.status = 'stock' then
+    update public.items set qty = qty - 1, updated_at = now() where id = u.item_id;
+    perform public._log(u.item_id, 'unmake', -1, 1, u.code, a);
+  else
+    perform public._log(u.item_id, 'unmake', 0, 1, u.code, a);
+  end if;
 end $$;
 
 -- سكان قطعة وهي بتتحط في صندوق الشحنة

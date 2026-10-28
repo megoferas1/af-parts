@@ -76,6 +76,7 @@ export const OUT_REASONS = {
 const MV = {
   create: ['اتسجلت', 'plus', 'green'],
   make: ['اتصنّعت (قطع بأكواد)', 'plus', 'green'],
+  unmake: ['اتمسحت (اتسجلت بالغلط)', 'trash', 'gray'],
   in: ['دخول', 'in', 'green'],
   out: ['خروج', 'out', 'red'],
   adjust: ['جرد', 'list', 'gray'],

@@ -1,9 +1,9 @@
 /* stickers.js — طباعة استيكرات الـ QR */
-import { html, useState, useEffect, Icon, Sheet, Chips, Spinner, Stepper, Field, toast } from './ui.js?v=9';
-import { call, errText, canShareFile, shareFile, downloadFile } from './api.js?v=9';
-import { ownerText } from './store.js?v=9';
-import { buildStickersPdf, fileFrom, PER_PAGE } from './docs.js?v=9';
-import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=9';
+import { html, useState, useEffect, Icon, Sheet, SecTitle, Chips, Spinner, Stepper, Field, toast } from './ui.js?v=10';
+import { call, errText, canShareFile, shareFile, downloadFile } from './api.js?v=10';
+import { ownerText } from './store.js?v=10';
+import { buildStickersPdf, fileFrom, PER_PAGE } from './docs.js?v=10';
+import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=10';
 
 export function labelFor(item, idx) {
   return {
@@ -66,9 +66,13 @@ export function StickerSheet({ labels: base, title, copies, close }) {
 }
 
 export function BlankStickersSheet({ close }) {
+  const [blank, setBlank] = useState(null);
   const [n, setN] = useState(1);
   const [labels, setLabels] = useState(null);
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    call('blank_codes', {}).then((r) => setBlank(r || [])).catch((e) => { toast(errText(e), 'bad'); setBlank([]); });
+  }, []);
   async function reserve() {
     setBusy(true);
     try {
@@ -78,14 +82,24 @@ export function BlankStickersSheet({ close }) {
     setBusy(false);
   }
   if (labels) return html`<${StickerSheet} labels=${labels} title="استيكرات فاضية" close=${close} />`;
-  return html`<${Sheet} title="استيكرات فاضية" sub="اطبعها وسيبها جنبك، وأي حاجة تيجي الزق عليها واحد وامسحه" onClose=${close}
-    footer=${html`<button class="btn bigbtn" disabled=${busy} onClick=${reserve}>${busy ? 'لحظة...' : `اعمل ${n * PER_PAGE} كود جديد`}</button>`}>
+  return html`<${Sheet} title="استيكرات فاضية" sub="اطبعها وسيبها جنبك، وأي حاجة تيجي الزق عليها واحد وامسحه" onClose=${close}>
     <div class="steps">
       <div><b>١</b><span>اطبع الورق ده على ورق استيكر A4.</span></div>
       <div><b>٢</b><span>أول ما حاجة تدخل الجراش، الزق عليها استيكر.</span></div>
       <div><b>٣</b><span>اعمل سكان، والابلكيشن هيفتحلك صفحة التسجيل والكود متكتب.</span></div>
     </div>
+
+    <${SecTitle}>الأكواد الفاضية اللي عندك${blank ? ` (${blank.length})` : ''}<//>
+    ${!blank ? html`<${Spinner} />`
+      : blank.length === 0 ? html`<div class="note info"><${Icon} name="info" size=${18} /><span>كل الأكواد اللي اتطبعت قبل كده اتسجلت على حاجات. اعمل أكواد جديدة من تحت.</span></div>`
+      : html`<div class="note info"><${Icon} name="qr" size=${18} /><span>دي أكواد اتطبعت قبل كده ولسه مش متسجلة على أي قطعة. تقدر تطبعها تاني بدل ما تعمل أكواد جديدة.</span></div>
+        <div class="unitgrid">${blank.slice(0, 63).map((c) => html`<span class="unitchip" key=${c}><b class="ltr-t">${c}</b></span>`)}</div>
+        ${blank.length > 63 && html`<small class="soft">و ${blank.length - 63} كود كمان</small>`}
+        <button class="btn dark" onClick=${() => setLabels(blank.map((code) => ({ code })))}><${Icon} name="printer" size=${20} /> اطبع الأكواد الفاضية (${blank.length})</button>`}
+
+    <${SecTitle}>أكواد جديدة<//>
     <div class="field"><span class="lbl">كام ورقة؟</span>
       <${Chips} items=${[[1, 'ورقة (21)'], [2, '2 ورق (42)'], [3, '3 ورق (63)'], [5, '5 ورق (105)']]} value=${n} onChange=${setN} /></div>
+    <button class="btn" disabled=${busy} onClick=${reserve}>${busy ? 'لحظة...' : html`<${Icon} name="plus" size=${20} /> اعمل ${n * PER_PAGE} كود جديد`}</button>
   <//>`;
 }

@@ -1,11 +1,11 @@
 /* units.js — قطع التصدير: كل قطعة ليها كود لوحدها (رقم القطعة + مسلسل، زي AF-ANG-001-0007) */
-import { html, useState, useEffect, Icon, Pill, Empty, Spinner, Field, Stepper, Chips, Act, Sheet, SecTitle, openSheet, toast, confirmBox } from './ui.js?v=9';
-import { call, errText } from './api.js?v=9';
-import { useStore, reload } from './store.js?v=9';
-import * as L from './lib.js?v=9';
-import { StickerSheet } from './stickers.js?v=9';
-import { ItemSheet, run } from './items.js?v=9';
-import { ShipmentForm, ShipmentSheet } from './export.js?v=9';
+import { html, useState, useEffect, Icon, Pill, Empty, Spinner, Field, Stepper, Chips, Act, Sheet, SecTitle, openSheet, toast, confirmBox } from './ui.js?v=10';
+import { call, errText } from './api.js?v=10';
+import { useStore, reload } from './store.js?v=10';
+import * as L from './lib.js?v=10';
+import { StickerSheet } from './stickers.js?v=10';
+import { ItemSheet, run } from './items.js?v=10';
+import { ShipmentForm, ShipmentSheet } from './export.js?v=10';
 
 export const unitLabel = (code, item) => ({ code, title: item.name + (item.size ? ' · ' + item.size : ''), sub: item.name_en || item.part_no || '' });
 
@@ -84,6 +84,11 @@ export function UnitSheet({ code, itemId, close }) {
   async function unship() {
     await run(() => call('shipment_remove_unit', { p_ship: sh.id, p_unit: u.id }), 'اتشالت من الشحنة');
   }
+  async function del() {
+    if (!(await confirmBox({ title: 'مسح القطعة ' + code + '؟', text: 'استخدمها لو القطعة دي اتسجلت بالغلط ومش موجودة فعلاً. العدد هيقل واحد، والاستيكر بتاعها يترمي.', ok: 'امسح', danger: true }))) return;
+    const r = await run(() => call('unit_delete', { p_unit: u.id }), 'اتمسحت ' + code);
+    if (r.ok) close();
+  }
   return html`<${Sheet} title=${item.name} sub=${L.bidi(item.size, item.name_en)} onClose=${close}>
     <div class="unithead">
       <span class="codechip big ltr-t">${code}</span>
@@ -102,6 +107,7 @@ export function UnitSheet({ code, itemId, close }) {
       <span class="avatar sm"><${Icon} name="globe" size=${16} /></span>
       <span class="grow"><b>${item.name}</b><small>${L.bidi(item.part_no, `عندنا ${item.qty}`)}</small></span>
       <${Icon} name="chev" size=${18} /></button>
+    ${u && html`<button class="linkbtn danger" onClick=${del}><${Icon} name="trash" size=${15} /> اتسجلت بالغلط؟ امسح القطعة دي</button>`}
   <//>`;
 }
 
