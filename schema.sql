@@ -407,6 +407,16 @@ returns text language plpgsql security definer set search_path = public as $$
 declare v text := upper(trim(coalesce(p_code, '')));
 begin
   if v = '' then
+    -- الأول ناخد أصغر كود من الاستيكرات الفاضية اللي اتطبعت
+    select c.code into v from public.codes c
+     where not c.used
+       and not exists (select 1 from public.items i where i.code = c.code)
+       and not exists (select 1 from public.units u where u.code = c.code)
+     order by c.code limit 1 for update of c skip locked;
+    if v is not null then
+      update public.codes set used = true where code = v;
+      return v;
+    end if;
     v := 'AF-' || lpad(nextval('public.code_seq')::text, 5, '0');
     insert into public.codes (code, used) values (v, true);
     return v;
@@ -671,6 +681,7 @@ returns jsonb language plpgsql security definer set search_path = public, extens
 declare
   a jsonb := public._actor(p_token);
   old public.items%rowtype;
+  v_blank boolean := false;
   v_kind text := coalesce(nullif(p->>'kind', ''), 'part');
   v_name text := trim(coalesce(p->>'name', ''));
   v_en text := trim(coalesce(p->>'name_en', ''));
@@ -708,6 +719,11 @@ begin
 
   if p_id is null then
     if v_qty < (case when v_kind = 'product' then 0 else 1 end) then raise exception 'bad_qty'; end if;
+    -- من غير استيكر: بياخد أول كود فاضي اتطبع قبل كده (من غير ما يتطبعله استيكر تاني)
+    v_blank := v_kind <> 'tool' and trim(coalesce(p->>'code', '')) = ''
+               and exists (select 1 from public.codes c where not c.used
+                             and not exists (select 1 from public.items i where i.code = c.code)
+                             and not exists (select 1 from public.units u where u.code = c.code));
     v_code := case when v_kind = 'tool' then null else public._take_code(p->>'code') end;
     if v_kind = 'product' and v_pn is null then v_pn := public._next_part_no(v_cat); end if;  -- رقم القطعة أوتوماتيك
     insert into public.items (code, kind, name, name_en, category, size, driver_id, car_id, qty, condition, location, note, part_no)
@@ -743,7 +759,8 @@ begin
         'المقاس: من "' || coalesce(nullif(old.size, ''), '—') || '" إلى "' || coalesce(nullif(v_size, ''), '—') || '"', a);
     end if;
   end if;
-  return jsonb_build_object('id', v_id, 'code', v_code, 'part_no', (select part_no from public.items where id = v_id));
+  return jsonb_build_object('id', v_id, 'code', v_code, 'part_no', (select part_no from public.items where id = v_id),
+                            'from_blank', v_blank);
 end $$;
 
 -- دخول / خروج / جرد

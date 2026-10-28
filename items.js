@@ -1,15 +1,15 @@
 /* items.js — الحاجة نفسها: صفحتها، تسجيلها، دخول/خروج/جرد/تركيب، واختيار حاجات */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, closeAllSheets, toast, confirmBox, NumInput } from './ui.js?v=14';
-import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=14';
-import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=14';
-import * as L from './lib.js?v=14';
-import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=14';
-import { StickerSheet, labelFor } from './stickers.js?v=14';
-import { ScanSheet } from './qr.js?v=14';
-import { MoveRow } from './log.js?v=14';
-import { ShipmentForm } from './export.js?v=14';
-import { fmtMoney } from './docs.js?v=14';
-import { UnitsBlock, MakeSheet, makeUnits, unitLabel } from './units.js?v=14';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, closeAllSheets, toast, confirmBox, NumInput } from './ui.js?v=15';
+import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=15';
+import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=15';
+import * as L from './lib.js?v=15';
+import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=15';
+import { StickerSheet, labelFor } from './stickers.js?v=15';
+import { ScanSheet } from './qr.js?v=15';
+import { MoveRow } from './log.js?v=15';
+import { ShipmentForm } from './export.js?v=15';
+import { fmtMoney } from './docs.js?v=15';
+import { UnitsBlock, MakeSheet, makeUnits, unitLabel } from './units.js?v=15';
 
 /* تنفيذ عملية + تحديث + رسالة */
 export async function run(fn, okMsg) {
@@ -289,12 +289,13 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
     await reload().catch(() => {});
     setBusy(false);
     if (id) { toast('اتحفظ'); close(); return; }
-    toast('اتسجلت ✓' + (res.part_no ? ' ' + res.part_no : res.code ? ' ' + res.code : ''));
+    toast(res.from_blank ? 'اتسجلت ✓ خدت الكود ' + res.code + ' من الاستيكرات الفاضية، الزق الاستيكر بتاعه عليها'
+      : 'اتسجلت ✓' + (res.part_no ? ' ' + res.part_no : res.code ? ' ' + res.code : ''));
     /* منتج جديد بعدد: كل قطعة خدت كود، فاستيكراتهم تطلع على طول */
     const newUnits = kind === 'product' ? (getStore().idx.unitsByItem.get(res.id) || []) : [];
     const printUnits = () => { const it = getStore().idx.items.get(res.id); if (it && newUnits.length) openSheet(StickerSheet, { labels: newUnits.map((u) => unitLabel(u.code, it)), title: 'استيكرات ' + it.name }); };
     /* قطعة أو عدة جديدة بعدد: استيكر لكل واحدة بنفس الكود (لو جت من استيكر فاضي، الباقي بس) */
-    const extra = kind !== 'product' && res.code ? (f.qty || 1) - (code ? 1 : 0) : 0;
+    const extra = kind !== 'product' && res.code ? (f.qty || 1) - (code || res.from_blank ? 1 : 0) : 0;
     const printCopies = () => { const it = getStore().idx.items.get(res.id); if (it && extra > 0) openSheet(StickerSheet, { labels: [labelFor(it, getStore().idx)], title: 'استيكرات ' + it.name, copies: extra }); };
     if (mode === 'again') {
       setF((x) => ({ ...x, name: '', name_en: '', size: '', qty: kind === 'product' ? 0 : 1, note: '', price: null,
@@ -311,7 +312,7 @@ export function ItemForm({ id, kind: kindIn, code, preset, scanNext, onCreated, 
   }
 
   const title = id ? 'تعديل ' + old.name : kind === 'part' && garage ? 'تسجيل قطعة للجراش' : 'تسجيل ' + L.KIND[kind].label;
-  return html`<${Sheet} title=${title} sub=${id ? (old.code || L.KIND[kind].label) : code ? 'الكود: ' + code + ' (من الاستيكر)' : kind === 'tool' ? 'العدة من غير كود' : 'هتاخد كود جديد أوتوماتيك'} onClose=${close}
+  return html`<${Sheet} title=${title} sub=${id ? (old.code || L.KIND[kind].label) : code ? 'الكود: ' + code + ' (من الاستيكر)' : kind === 'tool' ? 'العدة من غير كود' : 'هتاخد أول كود من الاستيكرات الفاضية'} onClose=${close}
     footer=${html`<div class="stack">
       <button class="btn bigbtn" disabled=${busy} onClick=${() => save('open')}>${busy ? 'لحظة...' : html`<${Icon} name="check" size=${22} /> حفظ`}</button>
       ${!id && code && scanNext && html`<button class="btn ghost" disabled=${busy} onClick=${() => save('scan')}><${Icon} name="scan" size=${20} /> حفظ وامسح الاستيكر اللي بعده</button>`}
@@ -474,7 +475,7 @@ export function OldPartFields({ value, onChange, maxQty, src }) {
         ${v.code ? html`<span class="codechip">${v.code}</span><button type="button" class="linkbtn" onClick=${() => set('code', '')}>شيله</button>`
           : html`<button type="button" class="btn ghost sm" onClick=${scanSticker}><${Icon} name="scan" size=${18} /> لزقت عليها استيكر؟ امسحه</button>`}
       </div>
-      ${!v.code && html`<div class="hint">لو ما لزقتش استيكر، هتاخد كود جديد وتقدر تطبعله استيكر بعدين.</div>`}
+      ${!v.code && html`<div class="hint">لو ما لزقتش استيكر، هتاخد أول كود من الاستيكرات الفاضية اللي طبعتها (ولو خلصت، كود جديد تطبعله استيكر).</div>`}
     </div>`}
   </div>`;
 }

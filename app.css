@@ -264,7 +264,7 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 .pick:last-child { border-bottom: 0; }
 .pick-main { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 0; border: 0; background: none; text-align: start; }
 .pick.dis { opacity: .45; }
-.pick-qty { display: flex; justify-content: flex-end; padding: 0 0 12px; }
+.pick-qty { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 0 0 12px; }
 .tick { width: 28px; height: 28px; border-radius: 9px; border: 2px solid #c9ccd3; display: grid; place-items: center; flex: none; color: #fff; background: #fff; }
 .pick.on .tick, .tick.on { background: var(--green); border-color: var(--green); }
 .tick.big { width: 40px; height: 40px; border-radius: 50%; }
