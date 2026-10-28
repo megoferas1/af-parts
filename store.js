@@ -1,7 +1,7 @@
 /* store.js — البيانات اللي في الذاكرة + فهارس سريعة */
-import { useState, useEffect } from './ui.js?v=13';
-import { call } from './api.js?v=13';
-import { norm } from './lib.js?v=13';
+import { useState, useEffect } from './ui.js?v=14';
+import { call } from './api.js?v=14';
+import { norm } from './lib.js?v=14';
 
 let S = { data: null, idx: null, loading: false, err: '' };
 const subs = new Set();
@@ -72,7 +72,7 @@ export async function reload() {
     try {
       const d = await call('bootstrap');
       /* لو قاعدة البيانات لسه ما اتحدثتش، الأجزاء الجديدة بتبقى فاضية بدل ما الابلكيشن يقع */
-      ['jobs', 'staff', 'price_items', 'invoices', 'units'].forEach((k) => { if (!Array.isArray(d[k])) d[k] = []; });
+      ['jobs', 'staff', 'price_items', 'invoices', 'units', 'print_queue'].forEach((k) => { if (!Array.isArray(d[k])) d[k] = []; });
       S = { data: d, idx: build(d), loading: false, err: '' };
     } catch (e) {
       S = { ...S, loading: false, err: e && e.message ? e.message : String(e) };

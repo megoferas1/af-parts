@@ -1,9 +1,9 @@
 /* stickers.js — طباعة استيكرات الـ QR */
-import { html, useState, useEffect, Icon, Sheet, SecTitle, Chips, Spinner, Stepper, Field, NumInput, openSheet, toast } from './ui.js?v=13';
-import { call, errText, canShareFile, shareFile, downloadFile } from './api.js?v=13';
-import { ownerText } from './store.js?v=13';
-import { buildStickersPdf, buildSheetTestPdf, getSheet, saveSheet, perPage, SHEET_PRESETS, SHEET_FIELDS, fileFrom } from './docs.js?v=13';
-import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=13';
+import { html, useState, useEffect, Icon, Sheet, SecTitle, Chips, Spinner, Stepper, Field, NumInput, openSheet, toast, confirmBox } from './ui.js?v=14';
+import { call, errText, canShareFile, shareFile, downloadFile } from './api.js?v=14';
+import { ownerText, useStore, reload } from './store.js?v=14';
+import { buildStickersPdf, buildSheetTestPdf, getSheet, saveSheet, perPage, SHEET_PRESETS, SHEET_FIELDS, fileFrom } from './docs.js?v=14';
+import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=14';
 
 export function labelFor(item, idx) {
   return {
@@ -27,7 +27,7 @@ export function FileReady({ file, text }) {
 }
 
 /* طباعة استيكرات: copies = يسأل كام نسخة من نفس الكود (قطع السواقين والجراش) — ولو رقم، بيبدأ بيه (عدد القطعة) */
-export function StickerSheet({ labels: base, title, copies, close }) {
+export function StickerSheet({ labels: base, title, copies, onPrinted, close }) {
   const [n, setN] = useState(typeof copies === 'number' ? Math.max(1, Math.min(copies, 63)) : 1);
   const [start, setStart] = useState(0);
   const [file, setFile] = useState(null);
@@ -48,6 +48,17 @@ export function StickerSheet({ labels: base, title, copies, close }) {
     } catch (e) { toast('مقدرتش أجهّز الملف: ' + errText(e), 'bad'); }
     setProg(null);
   }
+  /* ورقة الطباعة المشتركة: نفس الكود بيتجمع بعدد نسخه */
+  async function addToQueue() {
+    const m = new Map();
+    labels.forEach((l) => { const x = m.get(l.code); if (x) x.copies++; else m.set(l.code, { code: l.code, title: l.title || '', sub: l.sub || '', copies: 1 }); });
+    try {
+      await call('pq_add', { p_labels: [...m.values()] });
+      await reload().catch(() => {});
+      toast(`اتضاف ${labels.length} استيكر لورقة الطباعة ✓`);
+      close();
+    } catch (e) { toast(errText(e), 'bad'); }
+  }
   const l0 = base[0] || {};
   return html`<${Sheet} title=${title || 'طباعة استيكرات'} sub=${`${labels.length} استيكر · ${pages} ${pages === 1 ? 'ورقة' : 'ورق'} A4`} onClose=${close}>
     <div class="sticker-pv">
@@ -62,6 +73,8 @@ export function StickerSheet({ labels: base, title, copies, close }) {
         class=${i < start ? 'used' : i < start + labels.length ? 'fill' : ''} onClick=${() => reset(setStart)(i)}>${i < start ? '' : i < start + labels.length ? '●' : ''}</button>`)}</div><//>
     <div class="note info"><${Icon} name="printer" size=${18} /><span>ورق استيكر A4 فيه ${per} استيكر، والمقاس المتظبط دلوقتي <b dir="ltr" style="unicode-bidi: isolate">${sheet.w} × ${sheet.h}</b> مم. اطبع بمقاس <b>100% / Actual size</b>.</span></div>
     <button class="btn ghost sm" onClick=${() => openSheet(SheetSetup, { onSaved: (v) => { setSheet(v); setFile(null); } })}><${Icon} name="settings" size=${18} /> الطباعة مش جاية على الاستيكر؟ ظبّط المقاس</button>
+    ${!onPrinted && !file && html`<button class="btn ghost" onClick=${addToQueue}><${Icon} name="plus" size=${20} /> ضيف لورقة الطباعة (واطبع بعدين مع غيره)</button>`}
+    ${file && onPrinted && html`<button class="btn dark" onClick=${async () => { if (await onPrinted()) close(); }}><${Icon} name="check" size=${20} /> اتطبعت؟ شيلهم من ورقة الطباعة</button>`}
     ${file ? html`<${FileReady} file=${file} text="استيكرات AF Parts" />`
       : prog ? html`<div class="center-t"><${Spinner} /><div class="soft">بجهّز ${prog[0]} من ${prog[1]}...</div></div>`
         : html`<button class="btn bigbtn" onClick=${make}><${Icon} name="printer" size=${22} /> جهّز ملف الطباعة</button>`}
@@ -174,4 +187,45 @@ export function SheetSetup({ onSaved, close }) {
       : html`<button class="btn dark" disabled=${busy} onClick=${test}><${Icon} name="printer" size=${20} /> ${busy ? 'لحظة...' : 'اطبع ورقة تجربة'}</button>`}
     <button class="linkbtn" onClick=${() => { setV({ ...SHEET_PRESETS['F-25'] }); setFile(null); }}>رجّع المقاس الأصلي (F-25)</button>
   <//>`;
+}
+
+/* ورقة الطباعة: كل اللي اتجمع من أي موبايل، تعدّل النسخ وتطبعهم مرة واحدة */
+export function PrintQueueSheet({ close }) {
+  const { data } = useStore();
+  const q = data.print_queue || [];
+  const total = q.reduce((a, x) => a + x.copies, 0);
+  const per = perPage();
+  async function setCopies(x, n) {
+    try { await call('pq_set', { p_id: x.id, p_copies: n }); await reload().catch(() => {}); } catch (e) { toast(errText(e), 'bad'); }
+  }
+  async function clearAll() {
+    if (!(await confirmBox({ title: 'تفضّي ورقة الطباعة؟', text: 'كل الاستيكرات اللي اتجمعت هتتشال (الأكواد نفسها مش بتتمسح).', ok: 'فضّيها', danger: true }))) return;
+    try { await call('pq_clear', { p_ids: null }); await reload().catch(() => {}); toast('اتفضّت'); } catch (e) { toast(errText(e), 'bad'); }
+  }
+  function print() {
+    const ids = q.map((x) => x.id);
+    const labels = q.flatMap((x) => Array.from({ length: x.copies }, () => ({ code: x.code, title: x.title, sub: x.sub })));
+    openSheet(StickerSheet, { labels, title: 'ورقة الطباعة', onPrinted: async () => {
+      try { await call('pq_clear', { p_ids: ids }); await reload().catch(() => {}); toast('اتشالوا من ورقة الطباعة ✓'); return true; } catch (e) { toast(errText(e), 'bad'); return false; }
+    } });
+  }
+  return html`<${Sheet} title="ورقة الطباعة" sub=${q.length ? `${total} استيكر · ${Math.ceil(total / per)} ${Math.ceil(total / per) === 1 ? 'ورقة' : 'ورق'}` : 'فاضية'} onClose=${close}
+    footer=${q.length > 0 && html`<button class="btn bigbtn" onClick=${print}><${Icon} name="printer" size=${22} /> اطبعهم كلهم (${total})</button>`}>
+    ${q.length === 0 ? html`<div class="note info"><${Icon} name="info" size=${18} /><span>لسه مفيش حاجة. من أي قطعة دوس «استيكر» وبعدين «ضيف لورقة الطباعة»، وكل اللي يتجمع يظهر هنا لأي حد فيكم.</span></div>`
+      : html`<div class="card tight">${q.map((x) => html`<div class="pqrow" key=${x.id}>
+          <div class="grow"><b class="ltr-t">${x.code}</b><small>${[x.title, x.added_by && 'ضافه ' + x.added_by].filter(Boolean).join(' · ')}</small></div>
+          <${Stepper} value=${x.copies} min=${1} max=${500} onChange=${(n) => setCopies(x, n)} />
+          <button class="pqx" aria-label="شيل" onClick=${() => setCopies(x, 0)}><${Icon} name="x" size=${18} /></button>
+        </div>`)}</div>
+        <button class="linkbtn danger" onClick=${clearAll}><${Icon} name="trash" size=${15} /> فضّي الورقة كلها</button>`}
+  <//>`;
+}
+
+/* زرار ورقة الطباعة: ظاهر فوق الشريط اللي تحت طول ما فيها حاجة */
+export function PrintQueueFab() {
+  const { data } = useStore();
+  const q = (data && data.print_queue) || [];
+  if (!q.length) return null;
+  const total = q.reduce((a, x) => a + x.copies, 0);
+  return html`<button class="pqfab" onClick=${() => openSheet(PrintQueueSheet)}><${Icon} name="printer" size=${20} /> ورقة الطباعة <b>${total}</b></button>`;
 }

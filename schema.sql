@@ -493,6 +493,7 @@ begin
              order by t.name)
         from public.templates t), '[]'::jsonb),
     'customers', coalesce((select jsonb_agg(to_jsonb(c) order by c.name) from public.customers c), '[]'::jsonb),
+    'print_queue', coalesce((select jsonb_agg(to_jsonb(q) order by q.created_at) from public.print_queue q), '[]'::jsonb),
     'units', coalesce((select jsonb_agg(jsonb_build_object('id', u.id, 'item_id', u.item_id, 'code', u.code, 'serial', u.serial,
                                                        'created_at', u.created_at) order by u.item_id, u.serial)
                          from public.units u where u.status = 'stock'), '[]'::jsonb),
@@ -2172,6 +2173,57 @@ begin
   delete from public.shipment_units where unit_id = p_unit and shipment_id = p_ship returning item_id into iid;
   if iid is null then raise exception 'not_found'; end if;
   perform public._ship_fix(p_ship, iid);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 16ب) ورقة الطباعة: استيكرات بتتجمع من أي موبايل وتتطبع كلها مرة واحدة
+-- ---------------------------------------------------------------------
+create table if not exists public.print_queue (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  title text not null default '',
+  sub text not null default '',
+  copies int not null default 1 check (copies between 1 and 500),
+  added_by text not null default '',
+  created_at timestamptz not null default clock_timestamp()
+);
+alter table public.print_queue enable row level security;
+revoke all on public.print_queue from anon, authenticated;
+
+-- ضيف استيكرات: لو الكود موجود، النسخ بتتجمع عليه
+create or replace function public.pq_add(p_token text, p_labels jsonb)
+returns int language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); l jsonb; n int := 0;
+begin
+  for l in select * from jsonb_array_elements(coalesce(p_labels, '[]'::jsonb)) loop
+    continue when coalesce(trim(l->>'code'), '') = '';
+    insert into public.print_queue (code, title, sub, copies, added_by)
+    values (upper(trim(l->>'code')), coalesce(l->>'title', ''), coalesce(l->>'sub', ''),
+            least(greatest(coalesce((l->>'copies')::int, 1), 1), 500), coalesce(a->>'name', ''))
+    on conflict (code) do update set copies = least(public.print_queue.copies + excluded.copies, 500),
+                                     title = excluded.title, sub = excluded.sub;
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
+-- تغيير عدد النسخ (0 = شيله من الورقة)
+create or replace function public.pq_set(p_token text, p_id uuid, p_copies int)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  if coalesce(p_copies, 0) < 1 then delete from public.print_queue where id = p_id;
+  else update public.print_queue set copies = least(p_copies, 500) where id = p_id; end if;
+end $$;
+
+-- بعد الطباعة: شيل اللي اتطبع (أو فضّي الورقة كلها لو مفيش ids)
+drop function if exists public.pq_clear(text, uuid[]);
+create or replace function public.pq_clear(p_token text, p_ids jsonb)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  if p_ids is null or jsonb_typeof(p_ids) <> 'array' then delete from public.print_queue;
+  else delete from public.print_queue where id::text in (select jsonb_array_elements_text(p_ids)); end if;
 end $$;
 
 -- ---------------------------------------------------------------------

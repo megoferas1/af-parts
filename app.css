@@ -586,3 +586,15 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 .unitchip.pick.on { border-color: var(--red); background: #fff1f1; color: var(--red); }
 .unitchip.pick.on small { color: var(--red); }
 .nudge { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pqfab { position: fixed; z-index: 29; left: 50%; transform: translateX(-50%); bottom: calc(76px + env(safe-area-inset-bottom)); display: flex; align-items: center; gap: 8px; padding: 10px 18px; border: 0; border-radius: 999px; background: var(--ink); color: #fff; font-weight: 800; font-size: 14.5px; box-shadow: 0 10px 24px -10px rgba(15, 16, 19, .7); white-space: nowrap; }
+.pqfab b { background: var(--red); border-radius: 999px; padding: 1px 9px; font-size: 13px; }
+.pqrow { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.pqrow:last-child { border-bottom: 0; }
+.pqrow b { display: block; font-size: 14.5px; }
+.pqrow small { display: block; color: var(--mute); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; }
+.pqrow .stepper { max-width: 128px; }
+.pqx { width: 36px; height: 36px; border-radius: 12px; border: 0; background: var(--soft, #f2f3f5); color: var(--mute); display: grid; place-items: center; flex: none; }
+.pqrow .stepper { align-self: center; }
+.pqrow b { white-space: nowrap; font-size: 13.5px; }
+.pqrow .stepper { grid-template-columns: 34px 44px 34px; }
+.app:has(.pqfab) .body { padding-bottom: 150px; }
