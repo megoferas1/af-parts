@@ -1,5 +1,5 @@
 /* api.js — الاتصال بـ Supabase */
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=15';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=16';
 
 if (!window.supabase) throw new Error('مكتبة Supabase ما اتحمّلتش (cdn.jsdelivr.net)');
 export const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {

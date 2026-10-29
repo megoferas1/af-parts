@@ -120,3 +120,5 @@ export const cmpName = new Intl.Collator('ar', { numeric: true, sensitivity: 'ba
 export const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export const sum = (arr, f) => arr.reduce((s, x) => s + (f ? f(x) : x), 0);
+/* اتسجلت في آخر 24 ساعة: بتتعلّم «لسه متسجلة» عشان تعرف تطبعلها استيكر */
+export const isNew = (i) => !!(i && i.created_at) && Date.now() - new Date(i.created_at).getTime() < 24 * 3600 * 1000;

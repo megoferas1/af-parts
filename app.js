@@ -1,19 +1,19 @@
 /* app.js — نقطة البداية: الدخول والتابات */
-import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=15';
-import { SUPABASE_URL } from './config.js?v=15';
-import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=15';
-import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=15';
-import { HomeTab } from './home.js?v=15';
-import { DriversTab } from './drivers.js?v=15';
-import { PrintQueueFab } from './stickers.js?v=15';
-import { ToolsTab } from './tools.js?v=15';
-import { ExportTab } from './export.js?v=15';
-import { TripsTab } from './trips.js?v=15';
-import { InvoicesTab } from './invoices.js?v=15';
-import { JobsTab, isOpenJob } from './jobs.js?v=15';
-import { ItemSheet, startNewItem } from './items.js?v=15';
-import { CODE_RE } from './qr.js?v=15';
-import { UnitSheet } from './units.js?v=15';
+import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=16';
+import { SUPABASE_URL } from './config.js?v=16';
+import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=16';
+import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=16';
+import { HomeTab } from './home.js?v=16';
+import { DriversTab } from './drivers.js?v=16';
+import { PrintQueueFab } from './stickers.js?v=16';
+import { ToolsTab } from './tools.js?v=16';
+import { ExportTab } from './export.js?v=16';
+import { TripsTab } from './trips.js?v=16';
+import { InvoicesTab } from './invoices.js?v=16';
+import { JobsTab, isOpenJob } from './jobs.js?v=16';
+import { ItemSheet, startNewItem } from './items.js?v=16';
+import { CODE_RE } from './qr.js?v=16';
+import { UnitSheet } from './units.js?v=16';
 
 /* لو حصل خطأ غير متوقع نعرضه بدل شاشة بيضا */
 function showFatal(msg) {

@@ -1,15 +1,15 @@
 /* items.js — الحاجة نفسها: صفحتها، تسجيلها، دخول/خروج/جرد/تركيب، واختيار حاجات */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, closeAllSheets, toast, confirmBox, NumInput } from './ui.js?v=15';
-import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=15';
-import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=15';
-import * as L from './lib.js?v=15';
-import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=15';
-import { StickerSheet, labelFor } from './stickers.js?v=15';
-import { ScanSheet } from './qr.js?v=15';
-import { MoveRow } from './log.js?v=15';
-import { ShipmentForm } from './export.js?v=15';
-import { fmtMoney } from './docs.js?v=15';
-import { UnitsBlock, MakeSheet, makeUnits, unitLabel } from './units.js?v=15';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, closeAllSheets, toast, confirmBox, NumInput } from './ui.js?v=16';
+import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=16';
+import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=16';
+import * as L from './lib.js?v=16';
+import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=16';
+import { StickerSheet, labelFor } from './stickers.js?v=16';
+import { ScanSheet } from './qr.js?v=16';
+import { MoveRow } from './log.js?v=16';
+import { ShipmentForm } from './export.js?v=16';
+import { fmtMoney } from './docs.js?v=16';
+import { UnitsBlock, MakeSheet, makeUnits, unitLabel } from './units.js?v=16';
 
 /* تنفيذ عملية + تحديث + رسالة */
 export async function run(fn, okMsg) {
@@ -48,7 +48,8 @@ export function ItemRow({ item, onClick, showOwner = true, right, extra }) {
         ${item.kind !== 'part' && item.category && html`<span>${item.category}</span>`}
         ${item.location && html`<span>📍 ${item.location}</span>`}
       </div>
-      ${(item.condition === 'repair' || item.condition === 'damaged' || out > 0 || extra) && html`<div class="irow-tags">
+      ${(item.condition === 'repair' || item.condition === 'damaged' || out > 0 || extra || L.isNew(item)) && html`<div class="irow-tags">
+        ${L.isNew(item) && html`<${Pill} tone="green">لسه متسجلة<//>`}
         ${(item.condition === 'repair' || item.condition === 'damaged') && html`<${Pill} tone=${cond.tone}>${cond.label}<//>`}
         ${out > 0 && html`<${Pill} tone="dark" icon="truck">برا ${out}<//>`}
         ${extra}

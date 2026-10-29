@@ -1,9 +1,10 @@
 /* stickers.js — طباعة استيكرات الـ QR */
-import { html, useState, useEffect, Icon, Sheet, SecTitle, Chips, Spinner, Stepper, Field, NumInput, openSheet, toast, confirmBox } from './ui.js?v=15';
-import { call, errText, canShareFile, shareFile, downloadFile } from './api.js?v=15';
-import { ownerText, useStore, reload } from './store.js?v=15';
-import { buildStickersPdf, buildSheetTestPdf, getSheet, saveSheet, perPage, SHEET_PRESETS, SHEET_FIELDS, fileFrom } from './docs.js?v=15';
-import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=15';
+import { html, useState, useEffect, Icon, Pill, Sheet, SecTitle, Chips, Spinner, Stepper, Field, NumInput, openSheet, toast, confirmBox } from './ui.js?v=16';
+import { call, errText, canShareFile, shareFile, downloadFile } from './api.js?v=16';
+import { ownerText, useStore, reload } from './store.js?v=16';
+import { buildStickersPdf, buildSheetTestPdf, getSheet, saveSheet, perPage, SHEET_PRESETS, SHEET_FIELDS, fileFrom } from './docs.js?v=16';
+import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=16';
+import { isNew } from './lib.js?v=16';
 
 export function labelFor(item, idx) {
   return {
@@ -19,12 +20,15 @@ export const labelsByQty = (items, idx) => items.filter((i) => i.code).flatMap((
 /* استيكرات قطع كتير: تختار القطع اللي عايزها (وعدد نسخ كل واحدة)، وبعدين تطبع أو تضيف لورقة الطباعة */
 export function PickStickersSheet({ items, title, close }) {
   const { idx } = useStore();
-  const its = items.filter((i) => i.code);
+  /* اللي لسه متسجلة الأول، الأحدث فوق */
+  const its = items.filter((i) => i.code).sort((a, b) => (isNew(b) - isNew(a)) || (isNew(a) ? String(b.created_at).localeCompare(String(a.created_at)) : 0));
+  const fresh = its.filter(isNew);
   const [sel, setSel] = useState(() => new Map());
   const toggle = (i) => setSel((m) => { const n = new Map(m); n.has(i.id) ? n.delete(i.id) : n.set(i.id, Math.max(1, Math.min(i.qty || 1, 50))); return n; });
   const setCopies = (i, v) => setSel((m) => { const n = new Map(m); n.set(i.id, v); return n; });
   const all = its.length > 0 && sel.size === its.length;
   const selectAll = () => setSel(all ? new Map() : new Map(its.map((i) => [i.id, Math.max(1, Math.min(i.qty || 1, 50))])));
+  const pickFresh = () => setSel(new Map(fresh.map((i) => [i.id, Math.max(1, Math.min(i.qty || 1, 50))])));
   const total = [...sel.values()].reduce((a, b) => a + b, 0);
   function next() {
     const labels = its.filter((i) => sel.has(i.id)).flatMap((i) => Array.from({ length: sel.get(i.id) }, () => labelFor(i, idx)));
@@ -33,13 +37,16 @@ export function PickStickersSheet({ items, title, close }) {
   return html`<${Sheet} title=${title || 'استيكرات'} sub="اختار القطع اللي عايز تطبع استيكراتها" onClose=${close} full
     footer=${html`<button class="btn bigbtn" disabled=${!sel.size} onClick=${next}><${Icon} name="printer" size=${22} /> ${sel.size ? `كمّل (${sel.size} قطعة · ${total} استيكر)` : 'اختار قطعة الأول'}</button>`}>
     ${its.length === 0 ? html`<div class="note info"><${Icon} name="info" size=${18} /><span>مفيش قطع ليها كود هنا.</span></div>` : html`
-      <button class="btn ghost sm" onClick=${selectAll}><${Icon} name=${all ? 'x' : 'check'} size=${18} /> ${all ? 'شيل الكل' : `اختار الكل (${its.length})`}</button>
+      <div class="grid2">
+        <button class="btn ghost sm" onClick=${selectAll}><${Icon} name=${all ? 'x' : 'check'} size=${18} /> ${all ? 'شيل الكل' : `اختار الكل (${its.length})`}</button>
+        <button class="btn ghost sm" disabled=${!fresh.length} onClick=${pickFresh}><${Icon} name="plus" size=${18} /> اللي لسه متسجلة (${fresh.length})</button>
+      </div>
       <div class="card tight">${its.map((i) => {
         const on = sel.has(i.id);
         return html`<div class=${'pick' + (on ? ' on' : '')} key=${i.id}>
           <button class="pick-main" onClick=${() => toggle(i)}>
             <span class="tick">${on && html`<${Icon} name="check" size=${16} stroke=${3} />`}</span>
-            <div class="grow"><div class="irow-title">${i.name}${i.size && html`<span class="size">${i.size}</span>`}</div>
+            <div class="grow"><div class="irow-title">${i.name}${i.size && html`<span class="size">${i.size}</span>`}${isNew(i) && html` <${Pill} tone="green">لسه متسجلة<//>`}</div>
               <div class="irow-sub"><span class="code">${i.code}</span><span>${ownerText(i, idx)}</span><span>عندنا: <b class="num">${i.qty}</b></span></div></div>
           </button>
           ${on && html`<div class="pick-qty"><span class="soft tiny grow">كام استيكر؟</span><${Stepper} value=${sel.get(i.id)} min=${1} max=${63} onChange=${(v) => setCopies(i, v)} /></div>`}
