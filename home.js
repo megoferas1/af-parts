@@ -1,19 +1,20 @@
 /* home.js — الرئيسية + السكان العام + البحث */
-import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=24';
-import { call, errText } from './api.js?v=24';
-import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=24';
-import * as L from './lib.js?v=24';
-import { ItemRow, ItemSheet, startNewItem } from './items.js?v=24';
-import { ScanSheet } from './qr.js?v=24';
-import { UnitSheet } from './units.js?v=24';
-import { TripCard } from './trips.js?v=24';
-import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=24';
-import { BlankStickersSheet } from './stickers.js?v=24';
-import { LogSheet } from './log.js?v=24';
-import { AdminSheet } from './admin.js?v=24';
-import { isOpenJob, isLate } from './jobs.js?v=24';
-import { openAssistant, useInbox } from './assistant.js?v=24';
-import { TodaySheet, PushCard, openTasks } from './today.js?v=24';
+import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=25';
+import { call, errText } from './api.js?v=25';
+import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=25';
+import * as L from './lib.js?v=25';
+import { ItemRow, ItemSheet, startNewItem } from './items.js?v=25';
+import { ScanSheet } from './qr.js?v=25';
+import { UnitSheet } from './units.js?v=25';
+import { TripCard } from './trips.js?v=25';
+import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=25';
+import { BlankStickersSheet } from './stickers.js?v=25';
+import { PurchasesSheet } from './purchases.js?v=25';
+import { LogSheet } from './log.js?v=25';
+import { AdminSheet } from './admin.js?v=25';
+import { isOpenJob, isLate } from './jobs.js?v=25';
+import { openAssistant, useInbox } from './assistant.js?v=25';
+import { TodaySheet, PushCard, openTasks } from './today.js?v=25';
 
 /* السكان العام: يفتح الحاجة، أو يسجّل استيكر فاضي */
 export function scanOpen() {
@@ -68,6 +69,7 @@ export function HomeTab({ onGo, onLogout }) {
   const tiles = [
     ['tools', 'wrench', 'العدة', `${idx.kinds.tool.length} حاجة · ليستات السباق`, 'dark', () => onGo('tools')],
     ...(canInvoice() ? [['invoices', 'file', 'الفواتير والأسعار', `${data.invoices.filter((v) => !v.paid).length} لسه ما اتدفعتش`, 'green', () => onGo('invoices')]] : []),
+    ['buy', 'file', 'المشتريات', 'النهارده والشهر، على كل شغلانة', 'red', () => openSheet(PurchasesSheet)],
     ['blank', 'qr', 'استيكرات فاضية', 'اطبع ورق وسيبه جنبك', 'gray', () => openSheet(BlankStickersSheet)],
     ['log', 'history', 'السجل', 'كل حركة بالاسم والوقت', 'amber', () => openSheet(LogSheet)],
   ];

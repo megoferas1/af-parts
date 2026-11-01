@@ -1,8 +1,8 @@
 /* money.js — المشتريات والمصاريف: تسجيل بصورة الفاتورة، تحليل الشهر، PDF، وقفل الشهر (مسح صور الفواتير) */
-import { sb, call, compressImage } from './api.js?v=24';
-import { getStore } from './store.js?v=24';
-import * as L from './lib.js?v=24';
-import { buildPdf, fileFrom, safeName } from './docs.js?v=24';
+import { sb, call, compressImage } from './api.js?v=25';
+import { getStore } from './store.js?v=25';
+import * as L from './lib.js?v=25';
+import { buildPdf, fileFrom, safeName } from './docs.js?v=25';
 
 const r0 = (n) => Math.round(Number(n) || 0);
 export const egp = (n) => r0(n).toLocaleString('en-US') + ' ج';
@@ -33,7 +33,7 @@ function group(list, key) {
   for (const e of list) { const k = key(e) || '—'; const g = m.get(k) || { name: k, total: 0, count: 0 }; g.total += Number(e.price) || 0; g.count++; m.set(k, g); }
   return [...m.values()].sort((a, b) => b.total - a.total).map((g) => ({ ...g, total: r0(g.total) }));
 }
-export const carOf = (e) => (e.job ? e.job + (e.car ? ' ' + e.car : '') + (e.driver ? ' (' + e.driver + ')' : '') + (e.product ? ' إنتاج ' + e.product : '') : 'مصاريف عامة');
+export const carOf = (e) => (e.job ? e.job + (e.car ? ' ' + e.car : '') + (e.driver ? ' (' + e.driver + ')' : '') + (e.product ? ' إنتاج ' + e.product : '') + (!e.car && !e.product && e.title ? ' ' + e.title : '') : 'مصاريف عامة');
 
 /* تحليل فترة أو شهر */
 export function analyze(list) {

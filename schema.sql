@@ -2694,3 +2694,171 @@ begin
   return v;
 end $$;
 grant execute on function public.staff_report(text, text, uuid) to anon, authenticated;
+
+-- ============================================================ v25
+-- كل شغلانة: خطوات بالترتيب (منها مشاوير، ومنها مستنية اللي قبلها)، «لسه هنشتري»، ومشترياتها بأنواعها وفاتورتها
+alter table public.expenses add column if not exists cat text not null default '';
+alter table public.expenses add column if not exists size text not null default '';
+alter table public.job_lines add column if not exists waiting boolean not null default false;   -- مستنية الخطوة اللي قبلها
+alter table public.job_lines add column if not exists errand boolean not null default false;    -- مشوار (ودّي / هات)
+alter table public.job_lines add column if not exists note text not null default '';            -- منين لفين، مقاسات...
+alter table public.job_lines drop constraint if exists job_lines_kind_check;
+alter table public.job_lines add constraint job_lines_kind_check check (kind in ('task', 'material', 'buy'));
+
+-- مشتريات: نوع ومقاس
+create or replace function public.expense_add(p_token text, p jsonb)
+returns uuid language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); v uuid; d date := coalesce(nullif(p->>'spent_on', '')::date, (now() at time zone 'Africa/Cairo')::date);
+begin
+  if coalesce(trim(p->>'item'), '') = '' then raise exception 'empty'; end if;
+  if exists (select 1 from public.month_closes where month = to_char(d, 'YYYY-MM')) then raise exception 'month_closed'; end if;
+  insert into public.expenses (item, qty, price, shop, job_id, staff_id, staff_name, note, receipt_path, spent_on, cat, size)
+  values (trim(p->>'item'), coalesce(nullif(p->>'qty', '')::numeric, 1), coalesce(nullif(p->>'price', '')::numeric, 0),
+          coalesce(trim(p->>'shop'), ''), nullif(p->>'job_id', '')::uuid,
+          case when a->>'kind' = 'staff' then (a->>'id')::uuid else nullif(p->>'staff_id', '')::uuid end,
+          coalesce(a->>'name', ''), coalesce(p->>'note', ''), nullif(p->>'receipt_path', ''), d,
+          left(coalesce(trim(p->>'cat'), ''), 40), left(coalesce(trim(p->>'size'), ''), 120))
+  returning id into v;
+  if nullif(p->>'job_id', '') is not null then
+    update public.jobs set updated_at = now() where id = (p->>'job_id')::uuid;
+    -- اللي كان في «لسه هنشتري» واتشرى يتعلّم عليه
+    update public.job_lines set done = true, done_by = coalesce(a->>'name', ''), done_at = now()
+     where id = (select id from public.job_lines where job_id = (p->>'job_id')::uuid and kind = 'buy' and not done
+                   and (title ilike '%' || trim(p->>'item') || '%' or trim(p->>'item') ilike '%' || title || '%') order by sort limit 1);
+  end if;
+  return v;
+end $$;
+
+create or replace function public.expenses_list(p_token text, p_from date, p_to date)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  return coalesce((select jsonb_agg(jsonb_build_object('id', e.id, 'item', e.item, 'qty', e.qty, 'price', e.price, 'shop', e.shop,
+            'job_id', e.job_id, 'job', j.ref, 'car', c.name, 'driver', d.name, 'product', pi.name, 'title', j.title, 'staff', e.staff_name, 'note', e.note,
+            'receipt', e.receipt_path, 'date', e.spent_on, 'cat', e.cat, 'size', e.size, 'at', e.created_at) order by e.spent_on, e.created_at)
+    from public.expenses e left join public.jobs j on j.id = e.job_id left join public.cars c on c.id = j.car_id
+    left join public.drivers d on d.id = j.driver_id left join public.items pi on pi.id = j.product_id
+   where e.spent_on between p_from and p_to
+     and (a->>'kind' = 'admin' or coalesce((a->>'inv')::boolean, false) or e.staff_id = (a->>'id')::uuid)), '[]'::jsonb);
+end $$;
+
+-- مشتريات شغلانة واحدة (كل الأيام)
+create or replace function public.job_expenses(p_token text, p_job uuid)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  return coalesce((select jsonb_agg(jsonb_build_object('id', e.id, 'item', e.item, 'qty', e.qty, 'price', e.price, 'shop', e.shop, 'job_id', e.job_id,
+            'staff', e.staff_name, 'note', e.note, 'receipt', e.receipt_path, 'date', e.spent_on, 'cat', e.cat, 'size', e.size, 'at', e.created_at)
+            order by e.spent_on, e.created_at)
+    from public.expenses e where e.job_id = p_job
+     and (a->>'kind' = 'admin' or coalesce((a->>'inv')::boolean, false) or e.staff_id = (a->>'id')::uuid)), '[]'::jsonb);
+end $$;
+
+-- تعديل / مسح مشتريات (الإدارة بس)
+create or replace function public.expense_update(p_token text, p_id uuid, p jsonb)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  if a->>'kind' <> 'admin' then raise exception 'admin_only'; end if;
+  update public.expenses set
+    item = coalesce(nullif(trim(p->>'item'), ''), item),
+    qty = coalesce(nullif(p->>'qty', '')::numeric, qty),
+    price = coalesce(nullif(p->>'price', '')::numeric, price),
+    shop = case when p ? 'shop' then coalesce(trim(p->>'shop'), '') else shop end,
+    cat = case when p ? 'cat' then left(coalesce(trim(p->>'cat'), ''), 40) else cat end,
+    size = case when p ? 'size' then left(coalesce(trim(p->>'size'), ''), 120) else size end,
+    job_id = case when p ? 'job_id' then nullif(p->>'job_id', '')::uuid else job_id end
+  where id = p_id;
+  if not found then raise exception 'not_found'; end if;
+end $$;
+create or replace function public.expense_delete(p_token text, p_id uuid)
+returns text language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); r text; m text;
+begin
+  if a->>'kind' <> 'admin' then raise exception 'admin_only'; end if;
+  delete from public.expenses where id = p_id returning receipt_path, to_char(spent_on, 'YYYY-MM') into r, m;
+  -- الصورة تتمسح لو مفيش مشتريات تانية عليها
+  if r is not null and exists (select 1 from public.expenses where receipt_path = r) then r := null; end if;
+  return r;
+end $$;
+
+-- المدير بيرتّب الخطوات: p_steps = [{ title, staff_id, errand, waiting, plan_date, note }], p_buy = [{ title, qty, unit }], p_remove = شغلانات تتشال (الكلام الطويل اللي اتقسّم)
+create or replace function public.job_steps_add(p_token text, p_job uuid, p_steps jsonb, p_buy jsonb, p_remove jsonb)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); x jsonb; s int; ids uuid[] := '{}'; v uuid; st uuid;
+begin
+  if not exists (select 1 from public.jobs where id = p_job) then raise exception 'not_found'; end if;
+  if jsonb_typeof(p_remove) = 'array' then
+    delete from public.job_lines where job_id = p_job and kind = 'task' and id::text in (select jsonb_array_elements_text(p_remove));
+  end if;
+  select coalesce(max(sort), 0) into s from public.job_lines where job_id = p_job and kind = 'task';
+  for x in select * from jsonb_array_elements(coalesce(p_steps, '[]'::jsonb)) loop
+    if coalesce(trim(x->>'title'), '') = '' then continue; end if;
+    -- نفس الخطوة موجودة ولسه ما خلصتش: ما تتكررش
+    if exists (select 1 from public.job_lines where job_id = p_job and kind = 'task' and not done and title = left(trim(x->>'title'), 300)
+               and not (id::text in (select jsonb_array_elements_text(case when jsonb_typeof(p_remove) = 'array' then p_remove else '[]'::jsonb end)))) then continue; end if;
+    st := nullif(x->>'staff_id', '')::uuid;
+    if st is not null and not exists (select 1 from public.staff where id = st and active) then st := null; end if;
+    s := s + 1;
+    insert into public.job_lines (job_id, kind, title, sort, staff_id, errand, waiting, plan_date, note, done, done_by, done_at, created_by)
+    values (p_job, 'task', left(trim(x->>'title'), 300), s, st, coalesce((x->>'errand')::boolean, false),
+            coalesce((x->>'waiting')::boolean, false) and not coalesce((x->>'done')::boolean, false), nullif(x->>'plan_date', '')::date,
+            left(coalesce(trim(x->>'note'), ''), 300), coalesce((x->>'done')::boolean, false),
+            case when coalesce((x->>'done')::boolean, false) then coalesce(a->>'name', '') else '' end,
+            case when coalesce((x->>'done')::boolean, false) then now() end, coalesce(a->>'name', ''))
+    returning id into v;
+    ids := ids || v;
+  end loop;
+  select coalesce(max(sort), 0) into s from public.job_lines where job_id = p_job and kind = 'buy';
+  for x in select * from jsonb_array_elements(coalesce(p_buy, '[]'::jsonb)) loop
+    if coalesce(trim(x->>'title'), '') = '' then continue; end if;
+    if exists (select 1 from public.job_lines where job_id = p_job and kind = 'buy' and not done and title = trim(x->>'title')) then continue; end if;
+    s := s + 1;
+    insert into public.job_lines (job_id, kind, title, qty, unit, sort, note, created_by)
+    values (p_job, 'buy', left(trim(x->>'title'), 300), greatest(coalesce(nullif(x->>'qty', '')::numeric, 1), 0.01), coalesce(x->>'unit', ''), s,
+            left(coalesce(trim(x->>'note'), ''), 300), coalesce(a->>'name', ''));
+  end loop;
+  update public.jobs set updated_at = now(), status = case when status = 'received' then 'working' else status end where id = p_job;
+  return to_jsonb(ids);
+end $$;
+
+-- لما خطوة تخلص: الخطوة اللي بعدها (لو كانت مستنية) تبقى عليها الدور، وصاحبها يجيله رسالة
+create or replace function public._step_release() returns trigger language plpgsql security definer set search_path = public as $$
+declare nx record; j record;
+begin
+  if new.kind <> 'task' or not new.done or coalesce(old.done, false) then return new; end if;
+  select ref, title, (select name from public.cars where id = jobs.car_id) car into j from public.jobs where id = new.job_id;
+  for nx in
+    -- الخطوة اللي بعدها على طول (في الترتيب) لو كانت مستنياها
+    select l.* from public.job_lines l
+     where l.job_id = new.job_id and l.kind = 'task' and not l.done and l.waiting
+       and l.sort = (select min(sort) from public.job_lines q where q.job_id = new.job_id and q.kind = 'task' and q.sort > new.sort)
+  loop
+    update public.job_lines set waiting = false, plan_date = coalesce(plan_date, (now() at time zone 'Africa/Cairo')::date) where id = nx.id;
+    if nx.staff_id is not null then
+      insert into public.staff_msgs (staff_id, kind, body, job_id, line_ids)
+      values (nx.staff_id, 'turn', 'دورك ✅ «' || new.title || '» خلصت في ' || coalesce(j.car, j.title) || ' (' || j.ref || ').' || chr(10)
+              || 'الخطوة الجاية عليك: ' || nx.title || case when nx.note <> '' then chr(10) || nx.note else '' end, new.job_id, array[nx.id]);
+    end if;
+  end loop;
+  return new;
+end $$;
+drop trigger if exists job_lines_step_release on public.job_lines;
+create trigger job_lines_step_release after update of done on public.job_lines for each row execute function public._step_release();
+
+-- آخر أسعار اشتريناها بيها (عشان المدير يقول الفرق)
+create or replace function public.last_prices(p_token text, p_items jsonb)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); x text; r jsonb := '[]'::jsonb; e record;
+begin
+  for x in select jsonb_array_elements_text(case when jsonb_typeof(p_items) = 'array' then p_items else '[]'::jsonb end) loop
+    select item, qty, price, shop, spent_on into e from public.expenses
+     where item ilike '%' || trim(x) || '%' or trim(x) ilike '%' || item || '%' order by spent_on desc, created_at desc limit 1;
+    if found then r := r || jsonb_build_object('for', x, 'item', e.item, 'qty', e.qty, 'price', e.price, 'shop', e.shop, 'date', e.spent_on); end if;
+  end loop;
+  return r;
+end $$;
+
+grant execute on function public.expense_add(text, jsonb), public.expenses_list(text, date, date), public.job_expenses(text, uuid),
+  public.expense_update(text, uuid, jsonb), public.expense_delete(text, uuid),
+  public.job_steps_add(text, uuid, jsonb, jsonb, jsonb), public.last_prices(text, jsonb) to anon, authenticated;

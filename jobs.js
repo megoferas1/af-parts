@@ -1,15 +1,16 @@
 /* jobs.js — شغل العربيات: كل عربية داخلة الجراش ليها أمر شغل
    الحالة، الشغل المطلوب، المسؤول، الساعات، الخامات، القطع اللي اتركبت، صور قبل وبعد، والفاتورة منه بدوسة */
-import { html, useState, useEffect, useMemo, Stepper, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=24';
-import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=24';
-import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=24';
-import * as L from './lib.js?v=24';
-import { run, ItemRow, InstallForm } from './items.js?v=24';
-import { DriverForm, CarForm } from './drivers.js?v=24';
-import { InvoiceForm, InvoiceSheet } from './invoices.js?v=24';
-import { HeroScan } from './home.js?v=24';
-import { ScanSheet } from './qr.js?v=24';
-import { ProduceSheet } from './units.js?v=24';
+import { html, useState, useEffect, useMemo, Stepper, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=25';
+import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=25';
+import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=25';
+import * as L from './lib.js?v=25';
+import { run, ItemRow, InstallForm } from './items.js?v=25';
+import { DriverForm, CarForm } from './drivers.js?v=25';
+import { InvoiceForm, InvoiceSheet } from './invoices.js?v=25';
+import { HeroScan } from './home.js?v=25';
+import { ScanSheet } from './qr.js?v=25';
+import { ProduceSheet } from './units.js?v=25';
+import { JobPurchases } from './purchases.js?v=25';
 
 export const JOB_ST = {
   received: { label: 'استلمناها', tone: 'gray', icon: 'clip', sub: 'العربية دخلت الجراش ولسه ما بدأناش' },
@@ -41,7 +42,7 @@ const stLabel = (j, st) => (j.product_id && j.status === 'ready' ? 'الإنتا
 
 export const isOpenJob = (j) => j.status !== 'delivered' && j.status !== 'cancelled';
 export const isLate = (j) => isOpenJob(j) && j.status !== 'ready' && !!j.due_date && j.due_date < L.todayStr();
-const tasksOf = (j) => (j.lines || []).filter((l) => l.kind === 'task');
+const tasksOf = (j) => (j.lines || []).filter((l) => l.kind === 'task').sort((a, b) => (a.sort || 0) - (b.sort || 0));
 const matsOf = (j) => (j.lines || []).filter((l) => l.kind === 'material');
 const hoursOf = (j) => L.sum(j.hours || [], (h) => Number(h.hours) || 0);
 const fmtH = (n) => (Math.round(n * 100) / 100).toString();
@@ -248,7 +249,11 @@ export function JobSheet({ id, close }) {
     await run(() => call('job_set_status', { p_id: j.id, p_status: s }), s === 'ready' ? 'العربية جاهزة ✓ — ابعت لصاحبها' : s === 'delivered' ? 'اتسلمت ✓' : 'اتغيرت لـ: ' + JOB_ST[s].label);
     setBusy('');
   }
-  async function toggle(l) { await run(() => call('job_line_done', { p_id: l.id, p_done: !l.done })); }
+  async function toggle(l) {
+    const r = await run(() => call('job_line_done', { p_id: l.id, p_done: !l.done }));
+    if (r.ok && !l.done) import('./assistant.js?v=25').then((m) => m.turnNotify(j.id)).catch(() => {});
+  }
+  const nextStep = tasks.find((l) => !l.done && !l.waiting);
   async function addTask(title) {
     const t = (title || nt).trim();
     if (!t) return toast('اكتب الشغلانة', 'bad');
@@ -320,12 +325,13 @@ export function JobSheet({ id, close }) {
     <${SecTitle} right=${tasks.length ? html`<span class="num">${done}/${tasks.length}</span>` : ''}>الشغل المطلوب<//>
     <div class="card tight">
       ${tasks.length > 0 && html`<span class="bar big"><i style=${'width:' + Math.round((done / tasks.length) * 100) + '%'}></i></span>`}
-      ${tasks.map((l) => html`<div class="task" key=${l.id}>
-        <button class=${'tick ' + (l.done ? 'on' : '')} onClick=${() => toggle(l)} aria-label=${l.done ? 'لسه' : 'خلصت'}>${l.done && html`<${Icon} name="check" size=${18} stroke=${3} />`}</button>
+      ${tasks.map((l, i) => html`<div class=${'task' + (nextStep && l.id === nextStep.id ? ' next' : '') + (l.waiting && !l.done ? ' wait' : '')} key=${l.id}>
+        <button class=${'tick ' + (l.done ? 'on' : '')} onClick=${() => toggle(l)} aria-label=${l.done ? 'لسه' : 'خلصت'}>${l.done ? html`<${Icon} name="check" size=${18} stroke=${3} />` : html`<span class="stepno">${i + 1}</span>`}</button>
         <button class="task-main grow" onClick=${() => openSheet(LineForm, { line: l })}>
-          <b class=${l.done ? 'done' : ''} dir="auto">${l.title}</b>
+          <b class=${l.done ? 'done' : ''} dir="auto">${l.errand ? '🚚 ' : ''}${l.title}</b>
+          ${l.note && !l.done && html`<small dir="auto">${l.note}</small>`}
           ${l.done ? html`<small>✓ ${L.bidi(l.done_by, L.fmtDateTime(l.done_at))}</small>`
-            : html`<small class=${l.staff_id ? 'who' : 'who none'}><${Icon} name="user" size=${12} /> ${(l.staff_id && (data.staff.find((s) => s.id === l.staff_id) || {}).name) || 'محدش لسه — دوس ووزّعها'}</small>`}</button>
+            : html`<small class=${l.staff_id ? 'who' : 'who none'}><${Icon} name="user" size=${12} /> ${(l.staff_id && (data.staff.find((s) => s.id === l.staff_id) || {}).name) || 'محدش لسه — دوس ووزّعها'}${l.waiting ? ' · مستنية اللي قبلها' : l.plan_date ? ' · ' + L.fmtDate(l.plan_date) : ''}${nextStep && l.id === nextStep.id ? ' · ← دي الجاية' : ''}</small>`}</button>
       </div>`)}
       <div class="addrow">
         <input class="input" dir="auto" placeholder="ضيف شغلانة..." value=${nt} onInput=${(e) => setNt(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter') addTask(); }} />
@@ -333,6 +339,8 @@ export function JobSheet({ id, close }) {
       </div>
       ${data.price_items.some((x) => x.kind === 'labor') && html`<button class="linkbtn" onClick=${() => openSheet(ListPick, { job: j, kind: 'labor' })}><${Icon} name="list" size=${15} /> من ليستة المصنعيات</button>`}
     </div>
+
+    <${JobPurchases} job=${j} />
 
     <${SecTitle}>الخامات اللي اتصرفت<//>
     ${mats.length > 0 && html`<div class="card tight">${mats.map((l) => html`<button class="lrow" key=${l.id} onClick=${() => openSheet(LineForm, { line: l })}>

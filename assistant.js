@@ -1,21 +1,22 @@
 /* assistant.js — «المدير»: مساعد بتكلمه عربي أو إنجليزي، بيرد من بيانات السيستم وبيعمل الحاجات بعد ما توافق
    الذكاء من Gemini (مجاني) عن طريق Supabase Edge Function اسمها ai — المفتاح هناك مش هنا.
    ولو الذكاء مش متاح، الزراير اللي تحت والبحث العادي شغالين. */
-import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=24';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=24';
-import { sb, call, errText, staffSession } from './api.js?v=24';
-import { useStore, getStore, reload, canInvoice } from './store.js?v=24';
-import * as L from './lib.js?v=24';
-import { ItemSheet, startNewItem, InstallForm } from './items.js?v=24';
-import { DriverSheet } from './drivers.js?v=24';
-import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=24';
-import { TripSheet, TripForm } from './trips.js?v=24';
-import { ShipmentSheet, ShipmentForm } from './export.js?v=24';
-import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=24';
-import { FileReady } from './stickers.js?v=24';
-import { LogSheet } from './log.js?v=24';
-import { scanOpen } from './home.js?v=24';
-import { prepReceipt, uploadReceipt, expensesIn, analyze, monthReport, monthPdf, closeMonth, egp, monthOf, lastMonth, monthName, carOf } from './money.js?v=24';
+import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=25';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=25';
+import { sb, call, errText, staffSession } from './api.js?v=25';
+import { useStore, getStore, reload, canInvoice } from './store.js?v=25';
+import * as L from './lib.js?v=25';
+import { ItemSheet, startNewItem, InstallForm } from './items.js?v=25';
+import { DriverSheet } from './drivers.js?v=25';
+import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=25';
+import { TripSheet, TripForm } from './trips.js?v=25';
+import { ShipmentSheet, ShipmentForm } from './export.js?v=25';
+import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=25';
+import { FileReady } from './stickers.js?v=25';
+import { CATS, PurchasesSheet } from './purchases.js?v=25';
+import { LogSheet } from './log.js?v=25';
+import { scanOpen } from './home.js?v=25';
+import { prepReceipt, uploadReceipt, expensesIn, analyze, monthReport, monthPdf, closeMonth, egp, monthOf, lastMonth, monthName, carOf } from './money.js?v=25';
 
 /* ============================================================ أدوات صغيرة */
 const st = () => getStore();
@@ -45,6 +46,13 @@ const findJob = (q) => pick(st().data.jobs, q, (j) => {
   const pr = j.product_id && idx.items.get(j.product_id);
   return j.ref + ' | ' + [c && c.name, d && d.name, pr && pr.name, j.title].join(' ');
 });
+/* لو الاسم جه على أكتر من شغلانة: فضّل المفتوح */
+function findOpenJob(q) {
+  const r = findJob(q);
+  if (!r.many) return r;
+  const m = r.many.filter((j) => j.status !== 'delivered' && j.status !== 'cancelled');
+  return m.length === 1 ? { one: m[0] } : m.length ? { many: m } : r;
+}
 /* شغل إنتاج: لو الاسم جه على أكتر من شغلانة، فضّل شغل الإنتاج المفتوح */
 const openJob = (j) => j.status !== 'delivered' && j.status !== 'cancelled';
 function findProdJob(q) {
@@ -105,17 +113,21 @@ function itemOut(i) {
 function jobOut(j, full) {
   const { idx } = st();
   const c = j.car_id && idx.cars.get(j.car_id), d = j.driver_id && idx.drivers.get(j.driver_id);
-  const tasks = (j.lines || []).filter((l) => l.kind === 'task');
+  const tasks = (j.lines || []).filter((l) => l.kind === 'task').sort((a, b) => (a.sort || 0) - (b.sort || 0));
+  const nx = tasks.find((l) => !l.done && !l.waiting);
   const o = {
     id: j.id, ref: j.ref, car: c ? c.name : '', driver: d ? d.name : '', title: j.title, type: KIND_JOB[j.kind || ''] || undefined,
     status: (JOB_ST[j.status] || {}).label, late: isLate(j) || undefined, due: j.due_date || undefined,
     responsible: staffName(j.staff_id) || undefined, tasks_done: tasks.filter((l) => l.done).length + ' من ' + tasks.length,
-    received: L.fmtDate(j.created_at),
+    received: L.fmtDate(j.created_at), next_step: nx ? nx.title + (nx.staff_id ? ' ← ' + staffName(nx.staff_id) : '') : undefined,
   };
   const pr = j.product_id && idx.items.get(j.product_id);
   if (pr) { o.production = pr.name + (pr.size ? ' ' + pr.size : '') + ' × ' + (j.prod_qty || '?'); o.made = j.made_qty || 0; }
   if (full) {
-    o.tasks = tasks.map((l) => ({ id: l.id, title: l.title, done: l.done, by: l.done ? l.done_by : undefined, staff: staffName(l.staff_id) || 'محدش' }));
+    o.steps = tasks.map((l, i) => ({ n: i + 1, id: l.id, title: l.title, done: l.done, by: l.done ? l.done_by : undefined, staff: staffName(l.staff_id) || 'محدش',
+      errand: l.errand || undefined, waits_previous: (!l.done && l.waiting) || undefined, date: l.plan_date || undefined, note: l.note || undefined }));
+    const buy = (j.lines || []).filter((l) => l.kind === 'buy');
+    if (buy.length) o.to_buy = buy.map((l) => l.title + (Number(l.qty) !== 1 ? ' × ' + r2(l.qty) : '') + (l.done ? ' ✓ اتشرت' : ''));
     o.materials = (j.lines || []).filter((l) => l.kind === 'material').map((l) => l.title + ' × ' + r2(l.qty) + (l.unit ? ' ' + l.unit : ''));
     o.hours = (j.hours || []).map((h) => h.staff_name + ': ' + r2(h.hours) + ' س (' + h.work_date + ')');
     o.note = j.note || undefined; o.phone = d ? d.phone : undefined;
@@ -239,25 +251,27 @@ const READ = {
     },
   },
   past_jobs: {
-    d: 'اتعلم من الشغل القديم: أوامر شغل شبه الشغلانة دي اتعمل فيها إيه بالظبط، مين عمل كل شغلانة، الساعات، والخامات، وخدت كام يوم. استخدمها قبل ما تقسّم أي عربية داخلة عشان تقسّم زي ما اتعمل قبل كده',
+    d: 'اتعلم من الشغل القديم: أوامر شغل أو إنتاج شبه الشغلانة دي اتعمل فيها إيه بالظبط بالترتيب، مين عمل كل خطوة، المشاوير، المشتريات بأسعارها وتاريخها، الساعات، وخدت كام يوم. استخدمها قبل ما تقسّم أي شغل جديد أو منتج بيتعاد، عشان تمشي بنفس الخطوات وتقول الأسعار القديمة',
     p: S_('object', { query: str('الشغل أو العربية (زي: كيت زاوية E36، رول كيج، تغيير مساعدين)') }, ['query']),
-    run({ query }) {
+    async run({ query }) {
       const { data } = st();
-      const hay = (j) => [j.title, j.kind && KIND_JOB[j.kind], ...(j.lines || []).map((l) => l.title), (st().idx.cars.get(j.car_id) || {}).name].filter(Boolean).join(' ');
+      const hay = (j) => [j.title, j.kind && KIND_JOB[j.kind], ...(j.lines || []).map((l) => l.title), (st().idx.cars.get(j.car_id) || {}).name, (st().idx.items.get(j.product_id) || {}).name].filter(Boolean).join(' ');
       const done = (j) => (j.lines || []).filter((l) => l.kind === 'task').length > 0;
       const found = smartFind(data.jobs.filter(done), hay, query).slice(0, 6);
       if (!found.length) return { found: 0, note: 'مفيش شغل قديم شبهها. قسّمها انت.' };
+      const buys = await Promise.all(found.slice(0, 3).map((j) => call('job_expenses', { p_job: j.id }).catch(() => [])));
       return {
         found: found.length,
-        jobs: found.map((j) => {
-          const tasks = (j.lines || []).filter((l) => l.kind === 'task');
+        jobs: found.map((j, k) => {
+          const tasks = (j.lines || []).filter((l) => l.kind === 'task').sort((a, b) => (a.sort || 0) - (b.sort || 0));
           const mats = (j.lines || []).filter((l) => l.kind !== 'task');
           const hrs = j.hours || [];
           const days = j.status === 'delivered' && j.status_at ? Math.max(1, Math.round((new Date(j.status_at) - new Date(j.created_at)) / 864e5)) : undefined;
           return {
             ref: j.ref, title: j.title, type: KIND_JOB[j.kind || ''] || undefined, status: (JOB_ST[j.status] || {}).label,
-            tasks: tasks.map((l) => l.title + (l.staff_id ? ' ← ' + staffName(l.staff_id) : '') + (l.done ? ' ✓' + (l.done_by ? ' (' + l.done_by + ')' : '') : '')),
-            materials: mats.slice(0, 15).map((l) => l.title + (l.qty ? ' ×' + l.qty : '')),
+            steps: tasks.map((l, i) => (i + 1) + ') ' + (l.errand ? '[مشوار] ' : '') + l.title + (l.staff_id ? ' ← ' + staffName(l.staff_id) : '') + (l.done ? ' ✓' + (l.done_by ? ' (' + l.done_by + ')' : '') : '')),
+            purchases: k < 3 ? (buys[k] || []).map((e) => e.item + (Number(e.qty) !== 1 ? ' ×' + r2(e.qty) : '') + ' = ' + Math.round(e.price) + ' ج' + (e.cat ? ' [' + e.cat + ']' : '') + (e.shop ? ' من ' + e.shop : '') + ' (' + e.date + ')') : undefined,
+            materials: mats.filter((l) => l.kind === 'material').slice(0, 15).map((l) => l.title + (l.qty ? ' ×' + l.qty : '')),
             total_hours: r2(L.sum(hrs, (h) => Number(h.hours))) || undefined,
             hours_by: Object.entries(hrs.reduce((a, h) => { const n = staffName(h.staff_id) || '؟'; a[n] = (a[n] || 0) + Number(h.hours); return a; }, {})).map(([n, h]) => n + ': ' + r2(h)),
             days_to_deliver: days,
@@ -634,32 +648,66 @@ const WRITE = {
     },
   },
   add_expense: {
-    d: 'سجّل مشتريات أو مصروف (حاجة اتشرت بفلوس): الحاجة، العدد، السعر، المحل، والعربية/أمر الشغل. لو فيه صورة فاتورة اتبعتت في الشات بتتحفظ معاها لوحدها. اقرا من الصورة الحاجات والأسعار والمحل',
+    d: 'سجّل مشتريات أو مصروف (حاجة اتشرت أو اتدفع فيها فلوس، زي الخراط أخد كام): كل حاجة بسعرها ونوعها، وكل حاجة على الشغلانة بتاعتها (عربية أو منتج أو أمر شغل). رسالة واحدة ممكن يبقى فيها حاجات لأكتر من شغلانة: حط job لكل بند. لو فيه صورة فاتورة اتبعتت في الشات بتتحفظ معاها. اقرا من الصورة الحاجات والأسعار والمحل',
     p: S_('object', {
-      items: arr(S_('object', { item: str('الحاجة'), qty: num('العدد'), price: num('السعر الإجمالي للبند بالجنيه') }, ['item', 'price']), 'الحاجات اللي اتشرت'),
-      shop: str('اسم المحل'), job: str('أمر الشغل أو العربية أو شغل الإنتاج (المنتج) اللي اتشرت عشانه (فاضي = مصاريف عامة)'), date: str('YYYY-MM-DD لو مش النهارده'), note: str('ملاحظة'),
+      items: arr(S_('object', {
+        item: str('الحاجة (أو «مصنعية الخراط» مثلاً)'), qty: num('العدد'), price: num('السعر الإجمالي للبند بالجنيه (لو اتقال سعر واحد لكذا حاجة، خليهم بند واحد بالسعر ده)'),
+        cat: en(CATS, 'النوع'), size: str('المقاس لو اتقال'), job: str('الشغلانة اللي البند ده عشانها لو مختلفة عن job'),
+      }, ['item', 'price']), 'الحاجات اللي اتشرت'),
+      shop: str('اسم المحل أو الصنايعي'), job: str('أمر الشغل أو العربية أو المنتج اللي اتشرت عشانه (فاضي = مصاريف عامة)'), date: str('YYYY-MM-DD لو مش النهارده'), note: str('ملاحظة'),
     }, ['items']),
-    check(a) {
-      const items = (a.items || []).map((x) => ({ item: String(x.item || '').trim(), qty: Number(x.qty) > 0 ? Number(x.qty) : 1, price: Number(x.price) })).filter((x) => x.item);
+    async check(a) {
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(a.date || '') ? a.date : L.todayStr();
+      const jobs = new Map();
+      const getJob = (q) => {
+        if (!q) return { one: null };
+        if (jobs.has(q)) return jobs.get(q);
+        const r = findOpenJob(q); jobs.set(q, r); return r;
+      };
+      const top = getJob(a.job);
+      if (top.many) return ambig('أمر شغل', top.many, (x) => jobOut(x)); if (a.job && !top.one) return notFound('أمر شغل', a.job);
+      const items = [];
+      for (const x of a.items || []) {
+        const item = String(x.item || '').trim(); if (!item) continue;
+        let job = top.one;
+        if (x.job) { const r = getJob(x.job); if (r.many) return ambig('أمر شغل', r.many, (y) => jobOut(y)); if (!r.one) return notFound('أمر شغل', x.job); job = r.one; }
+        items.push({ item, qty: Number(x.qty) > 0 ? Number(x.qty) : 1, price: Number(x.price), cat: CATS.includes(x.cat) ? x.cat : 'تانية', size: String(x.size || '').trim(), job });
+      }
       if (!items.length) return { error: 'مفيش حاجات' };
       const noPrice = items.filter((x) => !(x.price >= 0) || Number.isNaN(x.price));
-      if (noPrice.length) return { error: 'missing_price', items: noPrice.map((x) => x.item), hint: 'اسأل الموظف دفع كام' };
-      let job = null;
-      if (a.job) { const j = findJob(a.job); if (j.many) return ambig('أمر شغل', j.many, (x) => jobOut(x)); job = j.one || null; if (!job) return notFound('أمر شغل', a.job); }
-      return { ok: { items, shop: String(a.shop || '').trim(), job, date: /^\d{4}-\d{2}-\d{2}$/.test(a.date || '') ? a.date : L.todayStr(), note: a.note || '', img: LAST_IMG } };
+      if (noPrice.length) return { error: 'missing_price', items: noPrice.map((x) => x.item), hint: 'اسأل دفع كام في كل واحدة، في سؤال واحد' };
+      // متسجلة قبل كده النهارده؟ + آخر سعر اشترينا بيه
+      const [today, last] = await Promise.all([
+        expensesIn(date, date).catch(() => []),
+        call('last_prices', { p_items: items.map((x) => x.item) }).catch(() => []),
+      ]);
+      const dups = items.filter((x) => (today || []).some((e) => N(e.item) === N(x.item) && Math.round(e.price) === Math.round(x.price) && (e.job_id || null) === (x.job ? x.job.id : null)));
+      for (const x of items) {
+        const p = (last || []).find((y) => y.for === x.item);
+        if (p && !dups.includes(x)) x.before = p;
+      }
+      return { ok: { items, dups: dups.map((x) => x.item), shop: String(a.shop || '').trim(), date, note: a.note || '', img: LAST_IMG } };
     },
-    card: (o) => ({
-      title: 'مشتريات · ' + egp(L.sum(o.items, (x) => x.price)), icon: 'file',
-      rows: [o.shop && ['المحل', o.shop], ['على', o.job ? o.job.ref + ' ' + (jobOut(o.job).car || jobOut(o.job).production || o.job.title) : 'مصاريف عامة'], o.date !== L.todayStr() && ['اليوم', L.fmtDate(o.date)], o.img && ['الفاتورة', 'الصورة هتتحفظ ✓']],
-      list: o.items.map((x) => x.item + (x.qty !== 1 ? ' × ' + x.qty : '') + ' — ' + egp(x.price)),
-      warn: !o.shop ? 'مفيش اسم محل' : '',
-    }),
+    card: (o) => {
+      const groups = new Map();
+      for (const x of o.items) { const k = x.job ? x.job.ref + ' ' + (jobOut(x.job).car || jobOut(x.job).production || x.job.title) : 'مصاريف عامة'; groups.set(k, [...(groups.get(k) || []), x]); }
+      const line = (x) => x.item + (x.size ? ' (' + x.size + ')' : '') + (x.qty !== 1 ? ' × ' + x.qty : '') + ' — ' + egp(x.price) + ' · ' + x.cat
+        + (x.before ? ' · آخر مرة ' + egp(x.before.price) + (Number(x.before.qty) !== x.qty ? ' لـ' + Number(x.before.qty) : '') : '');
+      return {
+        title: 'مشتريات · ' + egp(L.sum(o.items, (x) => x.price)), icon: 'file',
+        rows: [o.shop && ['المحل', o.shop], groups.size === 1 && ['على', [...groups.keys()][0]], o.date !== L.todayStr() && ['اليوم', L.fmtDate(o.date)], o.img && ['الفاتورة', 'الصورة هتتحفظ ✓']],
+        list: groups.size === 1 ? o.items.map(line) : [...groups.entries()].flatMap(([k, xs]) => ['على ' + k + ':', ...xs.map((x) => '   ' + line(x))]),
+        warn: [o.dups.length && '⚠️ متسجلة النهارده بنفس السعر قبل كده: ' + o.dups.join('، ') + '. لو دي نفس الحاجة دوس «لأ».', !o.shop && 'مفيش اسم محل'].filter(Boolean).join(' — '),
+      };
+    },
     async exec(o) {
       let path = null;
       if (o.img) { try { path = await uploadReceipt(o.img.blob); } catch (e) { /* تتسجل من غير صورة */ } }
-      for (const x of o.items) await call('expense_add', { p: { item: x.item, qty: x.qty, price: x.price, shop: o.shop, job_id: o.job ? o.job.id : null, spent_on: o.date, note: o.note, receipt_path: path } });
+      for (const x of o.items) await call('expense_add', { p: { item: x.item, qty: x.qty, price: x.price, cat: x.cat, size: x.size, shop: o.shop, job_id: x.job ? x.job.id : null, spent_on: o.date, note: o.note, receipt_path: path } });
       if (o.img === LAST_IMG) LAST_IMG = null;
-      return { done: 'اتسجلت ' + o.items.length + ' حاجة بـ ' + egp(L.sum(o.items, (x) => x.price)) + (path ? ' ومعاها صورة الفاتورة' : '') };
+      const diff = o.items.filter((x) => x.before && Number(x.before.price) > 0 && Number(x.before.qty) === x.qty && Math.round(x.before.price) !== Math.round(x.price))
+        .map((x) => x.item + ': ' + egp(x.before.price) + ' ← ' + egp(x.price) + ' (' + (x.price > x.before.price ? '+' : '') + Math.round(((x.price - x.before.price) / x.before.price) * 100) + '%)');
+      return { done: 'اتسجلت ' + o.items.length + ' حاجة بـ ' + egp(L.sum(o.items, (x) => x.price)) + (path ? ' ومعاها صورة الفاتورة' : ''), price_changes: diff.length ? diff : undefined };
     },
   },
   close_month: {
@@ -694,7 +742,56 @@ const WRITE = {
       return { ok: { job: j.one, sel: uniq.filter((l) => !!l.done !== done), done } };
     },
     card: (o) => ({ title: (o.done ? 'خلصت ✓ · ' : 'لسه · ') + o.job.ref, icon: 'check', list: o.sel.map((l) => l.title) }),
-    async exec(o) { for (const l of o.sel) await call('job_line_done', { p_id: l.id, p_done: o.done }); return { done: 'اتعلّم على ' + o.sel.length }; },
+    async exec(o) {
+      for (const l of o.sel) await call('job_line_done', { p_id: l.id, p_done: o.done });
+      if (o.done) turnNotify(o.job.id);
+      await reload().catch(() => {});
+      const j = st().idx.jobs.get(o.job.id) || o.job;
+      return { done: 'اتعلّم على ' + o.sel.length, next_step: jobOut(j).next_step || 'مفيش خطوات تانية' };
+    },
+  },
+  plan_steps: {
+    d: 'رتّب شغل شغلانة (عربية أو منتج) خطوات بالترتيب: من كلام الإدارة أو الموظف، كل خطوة صغيرة وواضحة وعلى موظف. المشاوير (ودّي/هات من الخراط أو الجلفنة أو المحل) خطوة errand على اللي بيعمل المشاوير، وفيها منين لفين في note. الخطوة اللي مينفعش تبدأ غير لما اللي قبلها تخلص waits_previous=true. الحاجات اللي لسه هتتشرى في to_buy. لو فيه شغلانة قديمة كلامها طويل اتقسّم، حطها في replace عشان تتشال',
+    p: S_('object', {
+      job: str('أمر الشغل أو العربية أو المنتج'),
+      steps: arr(S_('object', {
+        title: str('الخطوة باختصار'), staff: str('الموظف'), errand: bool('مشوار'), waits_previous: bool('مستنية اللي قبلها تخلص'),
+        date: str('YYYY-MM-DD لو ليها يوم'), note: str('تفاصيل: منين لفين، مقاسات...'), done: bool('اتعملت خلاص'),
+      }, ['title']), 'الخطوات بالترتيب'),
+      to_buy: arr(S_('object', { item: str('الحاجة'), qty: num('العدد'), note: str('مقاس أو ملاحظة') }, ['item']), 'حاجات لسه هتتشرى'),
+      replace: arr(str('الشغلانة'), 'شغلانات موجودة تتشال لأنها اتقسّمت للخطوات دي'),
+    }, ['job', 'steps']),
+    check(a) {
+      const j = findOpenJob(a.job); if (j.many) return ambig('أمر شغل', j.many, (x) => jobOut(x)); if (!j.one) return notFound('أمر شغل', a.job);
+      const steps = [];
+      for (const x of a.steps || []) {
+        const title = String(x.title || '').trim(); if (!title) continue;
+        let staff = null;
+        if (x.staff) { const r = findStaff(x.staff); if (r.many) return ambig('موظف', r.many, (y) => y.name); if (!r.one) return notFound('موظف', x.staff); staff = r.one; }
+        steps.push({ title, staff, errand: !!x.errand, waiting: !!x.waits_previous, date: /^\d{4}-\d{2}-\d{2}$/.test(x.date || '') ? x.date : '', note: String(x.note || '').trim(), done: !!x.done });
+      }
+      if (!steps.length && !(a.to_buy || []).length) return { error: 'مفيش خطوات' };
+      const undone = (j.one.lines || []).filter((l) => l.kind === 'task' && !l.done);
+      const remove = [];
+      for (const q of a.replace || []) { const t = pick(undone, q, (l) => l.title); if (t.one) remove.push(t.one); }
+      const buy = (a.to_buy || []).map((x) => ({ title: String(x.item || '').trim(), qty: Number(x.qty) > 0 ? Number(x.qty) : 1, note: String(x.note || '').trim() })).filter((x) => x.title);
+      return { ok: { job: j.one, steps, buy, remove } };
+    },
+    card: (o) => {
+      const first = (o.job.lines || []).filter((l) => l.kind === 'task' && !o.remove.includes(l)).length;
+      return {
+        title: 'خطوات · ' + o.job.ref + ' ' + (jobOut(o.job).car || jobOut(o.job).production || o.job.title), icon: 'list',
+        list: [...o.steps.map((x, i) => (first + i + 1) + ') ' + (x.done ? '✓ ' : '') + (x.errand ? '🚚 ' : '') + x.title + (x.staff ? ' ← ' + x.staff.name : '') + (x.date ? ' · ' + L.fmtDate(x.date) : '') + (x.waiting ? ' · بعد اللي قبلها' : '') + (x.note ? ' — ' + x.note : '')),
+          ...(o.buy.length ? ['لسه هنشتري: ' + o.buy.map((b) => b.title + (b.qty !== 1 ? ' × ' + b.qty : '')).join('، ')] : [])],
+        warn: o.remove.length ? 'هتتشال وتتقسم: ' + o.remove.map((l) => l.title.slice(0, 60)).join(' / ') : '',
+      };
+    },
+    async exec(o) {
+      await call('job_steps_add', { p_job: o.job.id, p_steps: o.steps.map((x) => ({ title: x.title, staff_id: x.staff ? x.staff.id : null, errand: x.errand, waiting: x.waiting, plan_date: x.date || null, note: x.note, done: x.done })),
+        p_buy: o.buy, p_remove: o.remove.map((l) => l.id) });
+      notifyStaff([o.job.id], o.steps.filter((x) => x.staff && !x.waiting && !x.done).map((x) => x.staff.id));
+      return { done: 'الخطوات اتحطت على ' + o.job.ref + ' وكل واحد اتبعتله اللي عليه دلوقتي', _refs: [['job', o.job.id, o.job.ref]] };
+    },
   },
   set_job_status: {
     d: 'غيّر حالة العربية: received استلمناها، working شغالين، waiting مستنية قطع، ready جاهزة، delivered اتسلمت، cancelled اتلغت',
@@ -876,13 +973,14 @@ const WRITE = {
 /* فتح شاشة في الابلكيشن (من غير تأكيد) — للحاجات اللي محتاجة كاميرا أو اختيارات كتير */
 const OPEN = {
   open: {
-    d: 'افتح شاشة في الابلكيشن للمستخدم: item قطعة، job أمر شغل، driver سواق، trip طلعة، shipment شحنة، invoice فاتورة، install تركيب قطعة على عربية، new_item تسجيل حاجة جديدة، scan سكان QR، log السجل، new_job/new_trip/new_shipment/new_invoice فورم فاضي',
-    p: S_('object', { what: en(['item', 'job', 'driver', 'trip', 'shipment', 'invoice', 'install', 'new_item', 'scan', 'log', 'new_job', 'new_trip', 'new_shipment', 'new_invoice'], 'الشاشة'), ref: str('الحاجة (كود، اسم، رقم)'), car: str('للتركيب: العربية') }, ['what']),
+    d: 'افتح شاشة في الابلكيشن للمستخدم: item قطعة، job أمر شغل، driver سواق، trip طلعة، shipment شحنة، invoice فاتورة، install تركيب قطعة على عربية، new_item تسجيل حاجة جديدة، scan سكان QR، log السجل، new_job/new_trip/new_shipment/new_invoice فورم فاضي، purchases صفحة كل المشتريات',
+    p: S_('object', { what: en(['item', 'job', 'driver', 'trip', 'shipment', 'invoice', 'install', 'new_item', 'scan', 'log', 'new_job', 'new_trip', 'new_shipment', 'new_invoice', 'purchases'], 'الشاشة'), ref: str('الحاجة (كود، اسم، رقم)'), car: str('للتركيب: العربية') }, ['what']),
     run({ what, ref, car }) {
       const { data } = st();
       const go = (C, p) => { setTimeout(() => openSheet(C, p), 50); return { done: 'اتفتحت' }; };
       if (what === 'scan') { setTimeout(scanOpen, 50); return { done: 'السكان اتفتح' }; }
       if (what === 'log') return go(LogSheet, {});
+      if (what === 'purchases') return go(PurchasesSheet, {});
       if (what === 'new_job') return go(JobForm, {});
       if (what === 'new_trip') return go(TripForm, {});
       if (what === 'new_shipment') return go(ShipmentForm, {});
@@ -965,6 +1063,10 @@ ${(NOTES || []).length ? 'اللي الإدارة علّمتهولك قبل كد
   • لو قال فيه حاجة واقفاه أو مش هيخلص: اسأل «إيه اللي واقفك؟» لو مش واضح، وبعدها report_problem (بتبلّغ الإدارة لوحدها). واقترح عليه يعمل إيه لحد ما تتحل (شغلانة تانية من شغله).
   • ما تسألش عن حاجة قالها قبل كده في الشات أو في الرسايل. ردودك للموظف قصيرة جداً.
 - مهم جداً: الكلام بس مابيسجلش حاجة. ما تقولش «اتسجل» أو «سجلت» أو «اتحفظ» أو «بلّغت الإدارة» غير لو الأداة رجعت done أو ok في نفس الرد. لو فيه كارت مستني موافقة قول «دوس اعملها عشان يتسجل».
+- الخطوات (أهم حاجة): كل شغلانة لازم تبقى خطوات صغيرة بالترتيب، وكل خطوة على موظف. لما الإدارة أو موظف يقول شغل هيتعمل أو كلام طويل (زي «هنعمل فلانشات، نرفع المقاسات، تروح للخراط، نشتري مسامير، تروح الجلفنة، ونركّبها»)، رتّبه بـ plan_steps: كل خطوة لوحدها، والمشاوير (ودّي/هات من الخراط، الجلفنة، المحل) خطوة errand على اللي بيعمل المشاوير وفي note منين لفين، واللي مستنية حاجة قبلها waits_previous، واللي لسه هيتشرى في to_buy، واللي اتعمل خلاص done. لو فيه شغلانة موجودة كلامها طويل وفيه كذا خطوة، حطها في replace عشان تتقسم. مين بيعمل المشاوير: من اللي بين [] جنب اسم الموظف أو من ذاكرتك، ولو مش عارف اسأل الإدارة مرة واحدة واحفظها بـ remember.
+- لما حد يحكي اللي حصل («عملنا كذا، الخراط أخد كذا، اشترينا كذا»): في نفس الرد علّم الخطوات اللي خلصت (tasks_done)، وسجّل كل مصروف على شغلانته ونوعه (add_expense، بند لكل حاجة، و job لكل بند لو الكلام عن أكتر من شغلانة)، ولو قال خطوات جديدة plan_steps. وبعدين قول الخطوة الجاية ومين عليها. الصنايعي اللي أخد فلوس (الخراط، الجلفنة، الدهان) ده مصروف نوعه خراطة أو جلفنة ودهان أو شغل بره.
+- شغلانة أو منتج بيتعاد (نفس الشغل لعربية تانية، أو نفس المنتج تاني): نادي past_jobs الأول، وامشي بنفس الخطوات بالترتيب، وقول المشتريات القديمة بأسعارها. ولما تتسجل أسعار جديدة قول الفرق (add_expense بيرجّع price_changes).
+- الإدارة عايزة تشوف المشتريات أو فاتورة مشتريات عربية: قولها تفتح الشغلانة (فيها قسم «المشتريات» وزرار «فاتورة المشتريات PDF») أو افتح صفحة المشتريات بأداة open.
 - شغل الإنتاج (من غير عربية): لو الإدارة قالت تصنيع منتج للتصدير أو للبيع (مثلاً «افتح شغل 10 صالة E36 للتصدير»، «هنعمل 5 كيت زاوية»)، ده create_production مش create_job، ومفيش سواق ولا عربية. قسّمه شغلانات زي العربيات بالظبط ووزّعه. المشتريات اللي بتتشرى له تتسجل عليه (add_expense بالـ job بتاعه). لما الموظف أو الإدارة يقولوا «خلص 4 صالات» نادي finish_production. «التكلفة/المكسب» ← job_cost.
 - المصاريف للإدارة: «صرفنا كام؟» ← expenses. «تحليل الشهر» أو «اقفل الشهر» ← month_report الأول (الأرقام والمقارنة باختصار وأهم ملاحظة: أغلى عربية، محل غالي، زيادة كبيرة)، وبعدها لو قالت «اقفل» نادي close_month.
 - التواريخ اكتبها YYYY-MM-DD في الأدوات. «بكرة» = ${L.addDays(L.todayStr(), 1)}.${inboxText()}`;
@@ -992,6 +1094,8 @@ function inboxText() {
   if (!list.length) return '';
   return '\nرسايل إنت بعتها للي بيكلمك آخر كام يوم (عشان تفهم رده وتتابع عليها، وما تسألش تاني عن حاجة اتردت):\n' + list.map((m) => '• ' + String(m.created_at).slice(5, 16).replace('T', ' ') + ' — ' + String(m.body).replace(/\s+/g, ' ').slice(0, 260)).join('\n');
 }
+// خطوة خلصت: اللي عليه الخطوة اللي بعدها يجيله «دورك» (الرسالة بتتعمل في قاعدة البيانات، والإشعار من السيرفر)
+export function turnNotify(jobId) { fnCall({ action: 'notify', turn_job: jobId }).catch(() => {}); }
 // الإدارة وزّعت شغل: كل موظف يجيله رسالة وإشعار على طول (من السيرفر)
 function notifyStaff(jobs, staff) {
   if (!isAdmin()) return;
@@ -1242,7 +1346,7 @@ function BossMsg({ m }) {
   const [busy, setBusy] = useState('');
   async function done({ l, j }) {
     setBusy(l.id);
-    try { await call('job_line_done', { p_id: l.id, p_done: true }); await reload(); send('خلصت «' + l.title + '» في ' + j.ref + ' (اتعلّمت خلاص)'); } catch (e) { toast(errText(e), 'bad'); }
+    try { await call('job_line_done', { p_id: l.id, p_done: true }); turnNotify(j.id); await reload(); send('خلصت «' + l.title + '» في ' + j.ref + ' (اتعلّمت خلاص)'); } catch (e) { toast(errText(e), 'bad'); }
     setBusy('');
   }
   const problem = ({ l, j }) => DRAFT && DRAFT('فيه مشكلة في «' + l.title + '» (' + j.ref + '): ');

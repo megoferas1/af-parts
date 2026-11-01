@@ -664,3 +664,13 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 .ai-pend img { width: 46px; height: 46px; object-fit: cover; border-radius: 10px; }
 .ai-input .att { width: 46px; height: 48px; flex: none; padding: 0; border-radius: 15px; }
 .aibar .badge.red { min-width: 26px; height: 26px; border-radius: 13px; background: var(--red); color: #fff; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; padding: 0 7px; font-size: 14px; }
+
+/* v25: الخطوات بالترتيب، والمشتريات بأنواعها */
+.stepno { font-weight: 800; font-size: 14px; color: var(--mute); }
+.task.next { background: var(--green-soft); border-radius: 12px; padding-inline: 8px; }
+.task.next .tick { border-color: var(--green, #14915a); }
+.task.wait { opacity: .62; }
+.catgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-bottom: 8px; }
+.catbox { background: var(--card, #fff); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 1px 0 rgba(0,0,0,.04); }
+.catbox small { color: var(--mute); }
+.catbox b { font-size: 17px; }
