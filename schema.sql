@@ -2680,3 +2680,17 @@ begin
 end $$;
 
 grant execute on function public.job_set_product(text, uuid, uuid, int), public.job_produce(text, uuid, int), public.expenses_list(text, date, date) to anon, authenticated;
+
+-- v24: الموظف يشرح شغل أو طريقة أو ملاحظة ← بتوصل للإدارة كاقتراح، والإدارة بس اللي تحفظها في ذاكرة المدير
+create or replace function public.staff_report(p_token text, p_text text, p_job uuid default null)
+returns uuid language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); v uuid; t text := left(trim(coalesce(p_text, '')), 600);
+begin
+  if t = '' then raise exception 'empty'; end if;
+  insert into public.staff_msgs (staff_id, kind, body, job_id)
+  values (null, 'report', coalesce(nullif(a->>'name', ''), 'موظف') || ': ' || t,
+          case when p_job is not null and exists (select 1 from public.jobs where id = p_job) then p_job end)
+  returning id into v;
+  return v;
+end $$;
+grant execute on function public.staff_report(text, text, uuid) to anon, authenticated;

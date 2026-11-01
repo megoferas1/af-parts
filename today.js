@@ -1,11 +1,11 @@
 /* today.js — «شغلي النهارده» للموظف، و«خطة الأيام» للإدارة، وزرار الإشعارات */
-import { html, useState, useEffect, Icon, Sheet, Empty, Pill, toast } from './ui.js?v=23';
-import { call, errText } from './api.js?v=23';
-import { useStore } from './store.js?v=23';
-import * as L from './lib.js?v=23';
-import { run } from './items.js?v=23';
-import { isOpenJob } from './jobs.js?v=23';
-import { pushState, enablePush, needsInstallOnIOS } from './push.js?v=23';
+import { html, useState, useEffect, Icon, Sheet, Empty, Pill, toast } from './ui.js?v=24';
+import { call, errText } from './api.js?v=24';
+import { useStore } from './store.js?v=24';
+import * as L from './lib.js?v=24';
+import { run } from './items.js?v=24';
+import { isOpenJob } from './jobs.js?v=24';
+import { pushState, enablePush, needsInstallOnIOS } from './push.js?v=24';
 
 const DAYS = ['الحد', 'الاتنين', 'التلات', 'الأربع', 'الخميس', 'الجمعة', 'السبت'];
 export const dayName = (d) => { const t = L.todayStr(); if (d === t) return 'النهارده'; if (d === L.addDays(t, 1)) return 'بكرة'; return DAYS[new Date(d + 'T12:00:00').getDay()] + ' ' + d.slice(8) + '/' + d.slice(5, 7); };

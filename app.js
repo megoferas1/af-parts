@@ -1,22 +1,22 @@
 /* app.js — نقطة البداية: الدخول والتابات */
-import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=23';
-import { SUPABASE_URL } from './config.js?v=23';
-import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=23';
-import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=23';
-import { HomeTab } from './home.js?v=23';
-import { DriversTab } from './drivers.js?v=23';
-import { PrintQueueFab } from './stickers.js?v=23';
-import { ToolsTab } from './tools.js?v=23';
-import { ExportTab } from './export.js?v=23';
-import { TripsTab } from './trips.js?v=23';
-import { InvoicesTab } from './invoices.js?v=23';
-import { JobsTab, isOpenJob } from './jobs.js?v=23';
-import { ItemSheet, startNewItem } from './items.js?v=23';
-import { CODE_RE } from './qr.js?v=23';
-import { UnitSheet } from './units.js?v=23';
-import { AssistantFab, openAssistant, loadInbox } from './assistant.js?v=23';
-import { TodaySheet } from './today.js?v=23';
-import { syncPush } from './push.js?v=23';
+import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=24';
+import { SUPABASE_URL } from './config.js?v=24';
+import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=24';
+import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=24';
+import { HomeTab } from './home.js?v=24';
+import { DriversTab } from './drivers.js?v=24';
+import { PrintQueueFab } from './stickers.js?v=24';
+import { ToolsTab } from './tools.js?v=24';
+import { ExportTab } from './export.js?v=24';
+import { TripsTab } from './trips.js?v=24';
+import { InvoicesTab } from './invoices.js?v=24';
+import { JobsTab, isOpenJob } from './jobs.js?v=24';
+import { ItemSheet, startNewItem } from './items.js?v=24';
+import { CODE_RE } from './qr.js?v=24';
+import { UnitSheet } from './units.js?v=24';
+import { AssistantFab, openAssistant, loadInbox } from './assistant.js?v=24';
+import { TodaySheet } from './today.js?v=24';
+import { syncPush } from './push.js?v=24';
 
 /* لو حصل خطأ غير متوقع نعرضه بدل شاشة بيضا */
 function showFatal(msg) {

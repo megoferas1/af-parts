@@ -1,21 +1,21 @@
 /* assistant.js — «المدير»: مساعد بتكلمه عربي أو إنجليزي، بيرد من بيانات السيستم وبيعمل الحاجات بعد ما توافق
    الذكاء من Gemini (مجاني) عن طريق Supabase Edge Function اسمها ai — المفتاح هناك مش هنا.
    ولو الذكاء مش متاح، الزراير اللي تحت والبحث العادي شغالين. */
-import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=23';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=23';
-import { sb, call, errText, staffSession } from './api.js?v=23';
-import { useStore, getStore, reload, canInvoice } from './store.js?v=23';
-import * as L from './lib.js?v=23';
-import { ItemSheet, startNewItem, InstallForm } from './items.js?v=23';
-import { DriverSheet } from './drivers.js?v=23';
-import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=23';
-import { TripSheet, TripForm } from './trips.js?v=23';
-import { ShipmentSheet, ShipmentForm } from './export.js?v=23';
-import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=23';
-import { FileReady } from './stickers.js?v=23';
-import { LogSheet } from './log.js?v=23';
-import { scanOpen } from './home.js?v=23';
-import { prepReceipt, uploadReceipt, expensesIn, analyze, monthReport, monthPdf, closeMonth, egp, monthOf, lastMonth, monthName, carOf } from './money.js?v=23';
+import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=24';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=24';
+import { sb, call, errText, staffSession } from './api.js?v=24';
+import { useStore, getStore, reload, canInvoice } from './store.js?v=24';
+import * as L from './lib.js?v=24';
+import { ItemSheet, startNewItem, InstallForm } from './items.js?v=24';
+import { DriverSheet } from './drivers.js?v=24';
+import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=24';
+import { TripSheet, TripForm } from './trips.js?v=24';
+import { ShipmentSheet, ShipmentForm } from './export.js?v=24';
+import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=24';
+import { FileReady } from './stickers.js?v=24';
+import { LogSheet } from './log.js?v=24';
+import { scanOpen } from './home.js?v=24';
+import { prepReceipt, uploadReceipt, expensesIn, analyze, monthReport, monthPdf, closeMonth, egp, monthOf, lastMonth, monthName, carOf } from './money.js?v=24';
 
 /* ============================================================ أدوات صغيرة */
 const st = () => getStore();
@@ -277,6 +277,17 @@ const READ = {
       fnCall({ action: 'notify', problem_line: t.one.id }).catch(() => {});
       reload().catch(() => {});
       return { ok: 'اتسجلت والإدارة اتبلّغت', task: t.one.title, job: j.one.ref };
+    },
+  },
+  tell_admin: {
+    d: 'الموظف شرح حاجة مش مصروف ومش مشكلة: شغل عمله بالتفصيل، طريقة شغل، معلومة عن عربية أو قطعة، اقتراح. بتوصل للإدارة كرسالة، والإدارة تقرر تحفظها في ذاكرتك ولا لأ. اكتبها ملخصة وواضحة',
+    p: S_('object', { text: str('اللي الموظف قاله، ملخص واضح'), job: str('أمر الشغل أو العربية لو الكلام عن شغلانة معينة') }, ['text']),
+    async run(a) {
+      const t = String(a.text || '').trim(); if (!t) return { error: 'empty' };
+      let job = null;
+      if (a.job) { const j = findJob(a.job); job = j.one || null; }
+      await call('staff_report', { p_text: t, p_job: job ? job.id : null });
+      return { done: 'وصلت للإدارة' + (job ? ' على ' + job.ref : '') };
     },
   },
   expenses: {
@@ -949,9 +960,11 @@ ${(NOTES || []).length ? 'اللي الإدارة علّمتهولك قبل كد
 - التركيب على عربية والصور والاستيكرات: افتح الشاشة بأداة open.
 - متابعة الموظفين (لما اللي بيكلمك موظف): إنت مديره، وبتتابع معاه كل خطوة. ردّه غالباً على رسالة من رسايلك اللي تحت.
   • لو قال خلص حاجة: علّمها بـ tasks_done (لو مش متعلّمة)، وبعدها اسأله سؤال واحد بس لو لازم: شغل لحام أو تصنيع ← «استخدمت خامات؟ إيه وكام؟» وسجّلها add_material. تركيب ← «ركبت قطع جديدة ولا بتاعة السواق؟». وبعدها قوله الشغلانة اللي بعدها.
-  • لو قال اشترى حاجة أو بعت صورة فاتورة: اقرا الصورة كويس (الحاجات والأسعار والمحل). اللي ناقص من (السعر، المحل، لأنهي عربية) اسأل عليه مرة واحدة في سؤال واحد، وبعدها نادي add_expense. لو العربية مش متقالة وهو شغال على عربية واحدة بس، اعتبرها هي.
+  • لو قال اشترى حاجة أو دفع فلوس أو بعت صورة فاتورة: ده مصروف لازم يتسجل. اقرا الصورة كويس (الحاجات والأسعار والمحل). لو كل حاجة ليها سعر نادي add_expense في نفس الرد على طول، حتى لو المحل أو العربية مش معروفين (سيبهم فاضيين، أو العربية اللي هو شغال عليها لو واحدة بس). لو السعر بس ناقص، اسأل عن كل الأسعار الناقصة في سؤال واحد، ولما يرد نادي add_expense على طول. لو قال كذا حاجة في رسالة واحدة سجّلهم كلهم (add_expense واحد لكل محل).
+  • لو شرح شغل عمله، أو طريقة، أو معلومة، أو اقتراح (مش مصروف ومش مشكلة): علّم الشغلانات اللي خلصت بـ tasks_done، والباقي ابعته للإدارة بـ tell_admin. هي اللي تقرر تحفظه. ولو في نفس الكلام مصاريف، سجّلها بـ add_expense كمان.
   • لو قال فيه حاجة واقفاه أو مش هيخلص: اسأل «إيه اللي واقفك؟» لو مش واضح، وبعدها report_problem (بتبلّغ الإدارة لوحدها). واقترح عليه يعمل إيه لحد ما تتحل (شغلانة تانية من شغله).
   • ما تسألش عن حاجة قالها قبل كده في الشات أو في الرسايل. ردودك للموظف قصيرة جداً.
+- مهم جداً: الكلام بس مابيسجلش حاجة. ما تقولش «اتسجل» أو «سجلت» أو «اتحفظ» أو «بلّغت الإدارة» غير لو الأداة رجعت done أو ok في نفس الرد. لو فيه كارت مستني موافقة قول «دوس اعملها عشان يتسجل».
 - شغل الإنتاج (من غير عربية): لو الإدارة قالت تصنيع منتج للتصدير أو للبيع (مثلاً «افتح شغل 10 صالة E36 للتصدير»، «هنعمل 5 كيت زاوية»)، ده create_production مش create_job، ومفيش سواق ولا عربية. قسّمه شغلانات زي العربيات بالظبط ووزّعه. المشتريات اللي بتتشرى له تتسجل عليه (add_expense بالـ job بتاعه). لما الموظف أو الإدارة يقولوا «خلص 4 صالات» نادي finish_production. «التكلفة/المكسب» ← job_cost.
 - المصاريف للإدارة: «صرفنا كام؟» ← expenses. «تحليل الشهر» أو «اقفل الشهر» ← month_report الأول (الأرقام والمقارنة باختصار وأهم ملاحظة: أغلى عربية، محل غالي، زيادة كبيرة)، وبعدها لو قالت «اقفل» نادي close_month.
 - التواريخ اكتبها YYYY-MM-DD في الأدوات. «بكرة» = ${L.addDays(L.todayStr(), 1)}.${inboxText()}`;
@@ -1096,6 +1109,7 @@ export async function send(text, img) {
   HIST.push({ role: 'user', parts: img ? [{ text: text + '\n[مع الرسالة صورة]' }, { inlineData: { mimeType: 'image/jpeg', data: img.b64 } }] : [{ text }] });
   const thinking = push({ kind: 'wait' });
   const turnRefs = [];
+  let nudged = false, usedTool = false;
   try {
     for (let step = 0; step < 8; step++) {
       const content = await askAI(trimmed());
@@ -1103,7 +1117,14 @@ export async function send(text, img) {
       HIST.push({ role: 'model', parts: content.parts && content.parts.length ? content.parts : [{ text: '...' }] });
       const say = parts.filter((p) => p.text).map((p) => p.text).join('\n').trim();
       const calls = parts.filter((p) => p.functionCall).map((p) => p.functionCall);
+      if (!calls.length && !nudged && !usedTool && CLAIM.test(say)) {
+        /* قال «اتسجل» من غير ما ينادي أداة: نرجّعه يسجّل بجد قبل ما الكلام يظهر */
+        nudged = true;
+        HIST.push({ role: 'user', parts: [{ text: '[السيستم: إنت قلت إن حاجة اتسجلت أو اتبعتت بس ماندهتش أي أداة، فمفيش حاجة اتسجلت. نادي الأداة المناسبة دلوقتي (add_expense أو tasks_done أو tell_admin أو report_problem...)، ولو ناقصك معلومة اسأل عليها بدل ما تقول اتسجل. ولو كانت متسجلة فعلاً من قبل كده، قول كده بوضوح.]' }] });
+        continue;
+      }
       if (say) push({ kind: 'ai', text: say });
+      if (calls.length) usedTool = true;
       if (!calls.length) break;
       const resp = [], refs = [];
       for (const fc of calls) {
@@ -1211,6 +1232,9 @@ function InvoiceMsg({ m }) {
 }
 
 /* رسالة من المدير (اتبعتت كإشعار): الشغلانات بزرار «خلصت» و«مشكلة» */
+/* الرد قال إن حاجة اتسجلت؟ */
+const CLAIM = /(^|[\s،.!✓✅(«])(اتسج[ّ]?ل(ت|وا)?|سج[ّ]?لت(ها|هم|لك)?|سج[ّ]?لنا|اتحفظ(ت)?|حفظت(ها)?|اتبعت(ت)? للإدارة|بل[ّ]?غت|وصلت للإدارة|تم التسجيل|تم الحفظ)/;
+
 function BossMsg({ m }) {
   const { data } = useStore();
   const msg = m.msg;
@@ -1222,13 +1246,22 @@ function BossMsg({ m }) {
     setBusy('');
   }
   const problem = ({ l, j }) => DRAFT && DRAFT('فيه مشكلة في «' + l.title + '» (' + j.ref + '): ');
+  const [kept, setKept] = useState(false);
+  async function keep() {
+    setBusy('keep');
+    try { await call('ai_note_add', { p_note: String(msg.body).replace(/^[^:]{1,40}:\s*/, '') }); await loadNotes(); setKept(true); toast('اتحفظت في ذاكرة المدير'); } catch (e) { toast(errText(e), 'bad'); }
+    setBusy('');
+  }
   return html`<div class="ai-msg bot boss" dir="auto">
-    <small class="boss-h"><${Icon} name="bell" size=${13} /> المدير · ${L.fmtDateTime(msg.created_at)}</small>
+    <small class="boss-h"><${Icon} name="bell" size=${13} /> ${msg.kind === 'report' ? 'من الموظفين' : 'المدير'} · ${L.fmtDateTime(msg.created_at)}</small>
     <div>${msg.body}</div>
     ${lines.length > 0 && html`<div class="boss-tasks">${lines.map((x) => html`<div class="boss-task" key=${x.l.id}>
       <span class=${'grow' + (x.l.done ? ' done' : '')}>${x.l.title}${x.l.problem ? html` <small class="bad">⚠️ ${x.l.problem}</small>` : ''}</span>
       ${x.l.done ? html`<b class="ok">✓ خلصت</b>` : html`<button class="btn sm green" disabled=${busy || BUSY} onClick=${() => done(x)}>${busy === x.l.id ? '...' : 'خلصت'}</button>
         <button class="btn sm ghost" onClick=${() => problem(x)}>مشكلة</button>`}</div>`)}</div>`}
+    ${msg.kind === 'report' && isAdmin() && html`<div class="boss-tasks"><div class="boss-task">
+      <span class="grow soft">لو الكلام ده صح وينفع بعد كده، احفظه في ذاكرة المدير</span>
+      ${kept ? html`<b class="ok">✓ اتحفظت</b>` : html`<button class="btn sm dark" disabled=${!!busy} onClick=${keep}>${busy === 'keep' ? '...' : 'احفظها'}</button>`}</div></div>`}
   </div>`;
 }
 
