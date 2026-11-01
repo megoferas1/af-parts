@@ -1,15 +1,15 @@
 /* items.js — الحاجة نفسها: صفحتها، تسجيلها، دخول/خروج/جرد/تركيب، واختيار حاجات */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, closeAllSheets, toast, confirmBox, NumInput } from './ui.js?v=16';
-import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=16';
-import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=16';
-import * as L from './lib.js?v=16';
-import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=16';
-import { StickerSheet, labelFor } from './stickers.js?v=16';
-import { ScanSheet } from './qr.js?v=16';
-import { MoveRow } from './log.js?v=16';
-import { ShipmentForm } from './export.js?v=16';
-import { fmtMoney } from './docs.js?v=16';
-import { UnitsBlock, MakeSheet, makeUnits, unitLabel } from './units.js?v=16';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Segmented, Chips, Stepper, SearchBox, Act, Sheet, SecTitle, openSheet, closeSheet, closeAllSheets, toast, confirmBox, NumInput } from './ui.js?v=17';
+import { call, errText, photoUrl, uploadPhoto, removePhotoFile } from './api.js?v=17';
+import { useStore, getStore, reload, ownerText, isAdmin, canInvoice, nextPartNo } from './store.js?v=17';
+import * as L from './lib.js?v=17';
+import { DriverForm, CarForm, DriverSheet } from './drivers.js?v=17';
+import { StickerSheet, labelFor } from './stickers.js?v=17';
+import { ScanSheet } from './qr.js?v=17';
+import { MoveRow } from './log.js?v=17';
+import { ShipmentForm } from './export.js?v=17';
+import { fmtMoney } from './docs.js?v=17';
+import { UnitsBlock, MakeSheet, makeUnits, unitLabel } from './units.js?v=17';
 
 /* تنفيذ عملية + تحديث + رسالة */
 export async function run(fn, okMsg) {

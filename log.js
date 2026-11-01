@@ -1,9 +1,9 @@
 /* log.js — سجل الحركات */
-import { html, useState, useEffect, Icon, Empty, Spinner, Sheet, Chips, openSheet, confirmBox } from './ui.js?v=16';
-import { call } from './api.js?v=16';
-import { useStore, isAdmin } from './store.js?v=16';
-import * as L from './lib.js?v=16';
-import { ItemSheet, run } from './items.js?v=16';
+import { html, useState, useEffect, Icon, Empty, Spinner, Sheet, Chips, openSheet, confirmBox } from './ui.js?v=17';
+import { call } from './api.js?v=17';
+import { useStore, isAdmin } from './store.js?v=17';
+import * as L from './lib.js?v=17';
+import { ItemSheet, run } from './items.js?v=17';
 
 export function MoveRow({ m, compact, onUndo }) {
   const { idx } = useStore();

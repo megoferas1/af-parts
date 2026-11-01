@@ -1,17 +1,18 @@
 /* home.js — الرئيسية + السكان العام + البحث */
-import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=16';
-import { call, errText } from './api.js?v=16';
-import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=16';
-import * as L from './lib.js?v=16';
-import { ItemRow, ItemSheet, startNewItem } from './items.js?v=16';
-import { ScanSheet } from './qr.js?v=16';
-import { UnitSheet } from './units.js?v=16';
-import { TripCard } from './trips.js?v=16';
-import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=16';
-import { BlankStickersSheet } from './stickers.js?v=16';
-import { LogSheet } from './log.js?v=16';
-import { AdminSheet } from './admin.js?v=16';
-import { isOpenJob, isLate } from './jobs.js?v=16';
+import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=17';
+import { call, errText } from './api.js?v=17';
+import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=17';
+import * as L from './lib.js?v=17';
+import { ItemRow, ItemSheet, startNewItem } from './items.js?v=17';
+import { ScanSheet } from './qr.js?v=17';
+import { UnitSheet } from './units.js?v=17';
+import { TripCard } from './trips.js?v=17';
+import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=17';
+import { BlankStickersSheet } from './stickers.js?v=17';
+import { LogSheet } from './log.js?v=17';
+import { AdminSheet } from './admin.js?v=17';
+import { isOpenJob, isLate } from './jobs.js?v=17';
+import { openAssistant } from './assistant.js?v=17';
 
 /* السكان العام: يفتح الحاجة، أو يسجّل استيكر فاضي */
 export function scanOpen() {
@@ -74,6 +75,11 @@ export function HomeTab({ onGo, onLogout }) {
         ${results.items.length === 0 ? html`<${Empty} icon="search" text="مفيش حاجة بالاسم ده" />` : html`<div class="card tight">${results.items.map((i) => html`<${ItemRow} item=${i} key=${i.id} />`)}</div>`}`
       : html`
         <button class="btn bigbtn scanbig" onClick=${scanOpen}><${Icon} name="scan" size=${28} /> سكان QR</button>
+        <button class="aibar" onClick=${() => openAssistant()}>
+          <span class="aibar-ic"><${Icon} name="spark" size=${24} /></span>
+          <span class="grow"><b>اسأل المدير</b><small>اكتبله أي حاجة: فين قطعة، استلم عربية، اعمل فاتورة...</small></span>
+          <${Icon} name="chev" size=${20} />
+        </button>
         <button class="jobbar" onClick=${() => onGo('jobs')}>
           <span class="jobbar-ic"><${Icon} name="clip" size=${26} /></span>
           <span class="grow"><b>شغل العربيات</b><small>${jobs.length ? `${jobs.length} عربية في الجراش` : 'مفيش عربيات في الجراش دلوقتي'}${jReady ? ` · ${jReady} جاهزة` : ''}${jLate ? ` · ${jLate} متأخرة` : ''}</small></span>

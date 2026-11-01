@@ -1,14 +1,14 @@
 /* jobs.js — شغل العربيات: كل عربية داخلة الجراش ليها أمر شغل
    الحالة، الشغل المطلوب، المسؤول، الساعات، الخامات، القطع اللي اتركبت، صور قبل وبعد، والفاتورة منه بدوسة */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=16';
-import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=16';
-import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=16';
-import * as L from './lib.js?v=16';
-import { run, ItemRow, InstallForm } from './items.js?v=16';
-import { DriverForm, CarForm } from './drivers.js?v=16';
-import { InvoiceForm, InvoiceSheet } from './invoices.js?v=16';
-import { HeroScan } from './home.js?v=16';
-import { ScanSheet } from './qr.js?v=16';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=17';
+import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=17';
+import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=17';
+import * as L from './lib.js?v=17';
+import { run, ItemRow, InstallForm } from './items.js?v=17';
+import { DriverForm, CarForm } from './drivers.js?v=17';
+import { InvoiceForm, InvoiceSheet } from './invoices.js?v=17';
+import { HeroScan } from './home.js?v=17';
+import { ScanSheet } from './qr.js?v=17';
 
 export const JOB_ST = {
   received: { label: 'استلمناها', tone: 'gray', icon: 'clip', sub: 'العربية دخلت الجراش ولسه ما بدأناش' },
@@ -19,6 +19,11 @@ export const JOB_ST = {
   cancelled: { label: 'اتلغت', tone: 'gray', icon: 'x', sub: 'الشغل اتلغى' },
 };
 const STAGE = { before: 'قبل', during: 'أثناء', after: 'بعد' };
+/* نوع الشغل: سيت أب أو فابريكيشن، وشغلانات جاهزة لكل نوع */
+export const JOB_KIND = {
+  setup: { label: 'سيت أب', tasks: ['تغيير المساعدين', 'تغيير سوست المساعدين', 'تركيب سواي بار', 'ضبط التو', 'ضبط الكامبر والزوايا', 'ضبط الارتفاع', 'تغيير كوينات', 'ضبط الفرامل'] },
+  fab: { label: 'فابريكيشن', tasks: ['سمكرة', 'لحام', 'تقطيع', 'رول كيج', 'تقوية شاسيه', 'صالة', 'قواعد ماتور', 'تركيب كيت زاوية', 'دهان'] },
+};
 /* الخطوة الجاية في الشغل */
 const NEXT = {
   received: ['working', 'ابدأ الشغل', 'wrench'],
@@ -85,7 +90,7 @@ export function JobCard({ j }) {
   return html`<button class=${'tcard jcard j-' + j.status} onClick=${() => openSheet(JobSheet, { id: j.id })}>
     <span class="tcard-ic"><${Icon} name=${st.icon} size=${24} /></span>
     <span class="grow"><b>${car ? car.name : j.title}</b>
-      <small>${L.bidi(d && d.name, car ? j.title : '')}</small>
+      <small>${L.bidi(d && d.name, JOB_KIND[j.kind] && JOB_KIND[j.kind].label, car ? j.title : '')}</small>
       ${tasks.length > 0 && isOpenJob(j) && html`<span class="bar"><i style=${'width:' + Math.round((done / tasks.length) * 100) + '%'}></i></span><small>${done} من ${tasks.length} خلصت</small>`}
     </span>
     <span class="jcard-side"><${Pill} tone=${st.tone}>${st.label}<//>
@@ -106,7 +111,9 @@ export function JobForm({ id, preset, close }) {
     return cs.length === 1 ? cs[0].id : '';
   });
   const [title, setTitle] = useState(base.title || '');
+  const [kind, setKind] = useState(base.kind || '');
   const [tasks, setTasks] = useState('');
+  const addSug = (t) => setTasks((x) => (x.split('\n').map((y) => y.trim()).includes(t) ? x : (x.trim() ? x.replace(/\s*$/, '\n') : '') + t));
   const [due, setDue] = useState(base.due_date || '');
   const [staff, setStaff] = useState(base.staff_id || '');
   const [note, setNote] = useState(base.note || '');
@@ -124,7 +131,7 @@ export function JobForm({ id, preset, close }) {
     if (!title.trim()) return toast('اكتب المطلوب يتعمل في العربية', 'bad');
     setBusy(true);
     try {
-      const p = { driver_id: drv, car_id: car, title: title.trim(), note, staff_id: staff || null, due_date: due || null };
+      const p = { driver_id: drv, car_id: car, title: title.trim(), kind, note, staff_id: staff || null, due_date: due || null };
       if (!id) p.tasks = tasks.split('\n').map((t) => t.replace(/^[\s\-•*\d.)]+/, '').trim()).filter(Boolean);
       const r = await call('job_save', { p_id: id || null, p });
       await reload().catch(() => {});
@@ -147,7 +154,10 @@ export function JobForm({ id, preset, close }) {
       <button type="button" class="linkbtn" onClick=${() => openSheet(CarForm, { driverId: drv, onSaved: setCar })}>+ عربية جديدة</button>
     <//>`}
     ${other && html`<div class="note warn"><${Icon} name="alert" size=${18} /><span>العربية دي عليها أمر شغل مفتوح (${other.ref}: ${other.title})</span></div>`}
+    <${Field} label="العربية داخلة تعمل إيه؟">
+      <${Segmented} value=${kind} onChange=${setKind} items=${[['setup', 'سيت أب'], ['fab', 'فابريكيشن'], ['', 'تانية']]} /><//>
     <${Field} label="المطلوب" req hint="باختصار، مثلاً: رول كيج + كيت زاوية"><input class="input" value=${title} onInput=${(e) => setTitle(e.target.value)} /><//>
+    ${!old && JOB_KIND[kind] && html`<div class="sugs"><small>دوس على الشغل اللي هيتعمل:</small>${JOB_KIND[kind].tasks.map((t) => html`<button type="button" class="chip" onClick=${() => addSug(t)}>+ ${t}</button>`)}</div>`}
     <${SecTitle}>تفاصيل (اختياري)<//>
     ${!old && html`<${Field} label="الشغل بالتفصيل" hint="كل سطر شغلانة، وهتعلّم عليها وانت بتخلص">
       <textarea class="input" rows="4" dir="auto" value=${tasks} placeholder=${'لحام الرول كيج\nتركيب كيت الزاوية\nضبط الزوايا'} onInput=${(e) => setTasks(e.target.value)}></textarea><//>`}
@@ -250,6 +260,7 @@ export function JobSheet({ id, close }) {
     </div>`}>
 
     <div class="row gap8 wrap"><${Pill} tone=${st.tone} icon=${st.icon}>${st.label}<//>
+      ${JOB_KIND[j.kind] && html`<${Pill} tone="dark" icon=${j.kind === 'fab' ? 'flame' : 'wrench'}>${JOB_KIND[j.kind].label}<//>`}
       ${late && html`<${Pill} tone="red" icon="alert">متأخرة<//>`}
       ${j.invoice && html`<${Pill} tone="green" icon="file">${j.invoice.ref}<//>`}</div>
     ${next && html`<button class=${'btn bigbtn ' + (next[0] === 'ready' ? 'green' : next[0] === 'delivered' ? 'dark' : '')} disabled=${busy === 'st'} onClick=${() => setStatus(next[0])}>
@@ -276,7 +287,8 @@ export function JobSheet({ id, close }) {
         <button class=${'tick ' + (l.done ? 'on' : '')} onClick=${() => toggle(l)} aria-label=${l.done ? 'لسه' : 'خلصت'}>${l.done && html`<${Icon} name="check" size=${18} stroke=${3} />`}</button>
         <button class="task-main grow" onClick=${() => openSheet(LineForm, { line: l })}>
           <b class=${l.done ? 'done' : ''} dir="auto">${l.title}</b>
-          ${l.done && html`<small>✓ ${L.bidi(l.done_by, L.fmtDateTime(l.done_at))}</small>`}</button>
+          ${l.done ? html`<small>✓ ${L.bidi(l.done_by, L.fmtDateTime(l.done_at))}</small>`
+            : html`<small class=${l.staff_id ? 'who' : 'who none'}><${Icon} name="user" size=${12} /> ${(l.staff_id && (data.staff.find((s) => s.id === l.staff_id) || {}).name) || 'محدش لسه — دوس ووزّعها'}</small>`}</button>
       </div>`)}
       <div class="addrow">
         <input class="input" dir="auto" placeholder="ضيف شغلانة..." value=${nt} onInput=${(e) => setNt(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter') addTask(); }} />
@@ -331,7 +343,9 @@ function StatusSheet({ cur, onPick, close }) {
 
 /* تعديل شغلانة / خامة */
 function LineForm({ line, close }) {
+  const { data } = useStore();
   const [title, setTitle] = useState(line.title);
+  const [who, setWho] = useState(line.staff_id || '');
   const [qty, setQty] = useState(Number(line.qty));
   const [busy, setBusy] = useState(false);
   const mat = line.kind === 'material';
@@ -339,7 +353,10 @@ function LineForm({ line, close }) {
     if (!title.trim()) return toast('اكتب الاسم', 'bad');
     if (!(qty > 0)) return toast('الكمية غلط', 'bad');
     setBusy(true);
-    const r = await run(() => call('job_line_update', { p_id: line.id, p: { title: title.trim(), qty } }), 'اتحفظ');
+    const r = await run(async () => {
+      await call('job_line_update', { p_id: line.id, p: { title: title.trim(), qty } });
+      if (!mat && (who || null) !== (line.staff_id || null)) await call('job_line_assign', { p_id: line.id, p_staff: who || null });
+    }, 'اتحفظ');
     setBusy(false);
     if (r.ok) close();
   }
@@ -353,6 +370,7 @@ function LineForm({ line, close }) {
       <button class="btn ghost" onClick=${del}><${Icon} name="trash" size=${18} /> شيلها</button></div>`}>
     <${Field} label=${mat ? 'الخامة' : 'الشغلانة'} req><input class="input" dir="auto" value=${title} onInput=${(e) => setTitle(e.target.value)} /><//>
     ${(mat || Number(line.qty) !== 1) && html`<${Field} label=${'الكمية' + (line.unit ? ' (' + line.unit + ')' : '')}><${NumInput} value=${qty} onChange=${setQty} /><//>`}
+    ${!mat && data.staff.length > 0 && html`<${Field} label="مين هيعملها؟"><${Chips} items=${[['', 'محدش'], ...data.staff.map((s) => [s.id, s.name])]} value=${who} onChange=${setWho} /><//>`}
     ${line.done && html`<div class="note ok"><${Icon} name="check" size=${18} /><span>${L.bidi('خلصت', line.done_by, L.fmtDateTime(line.done_at))}</span></div>`}
   <//>`;
 }

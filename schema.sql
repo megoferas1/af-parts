@@ -1663,6 +1663,10 @@ create table if not exists public.job_lines (
   created_at timestamptz not null default now()
 );
 create index if not exists job_lines_job_idx on public.job_lines (job_id);
+-- v17: نوع الشغل (سيت أب / فابريكيشن) + كل شغلانة ليها موظف
+alter table public.jobs add column if not exists kind text not null default '';
+alter table public.job_lines add column if not exists staff_id uuid references public.staff(id) on delete set null;
+create index if not exists job_lines_staff_idx on public.job_lines (staff_id) where staff_id is not null;
 
 -- ساعات الشغل
 create table if not exists public.job_hours (
@@ -1761,9 +1765,11 @@ declare
   v_staff uuid := nullif(p->>'staff_id', '')::uuid;
   v_title text := trim(coalesce(p->>'title', ''));
   v_due date := nullif(p->>'due_date', '')::date;
-  cd uuid; v uuid; v_ref text; t text; n int := 0;
+  v_kind text := coalesce(p->>'kind', '');
+  cd uuid; v uuid; v_ref text; t text; x jsonb; ts uuid; n int := 0;
 begin
   if v_title = '' then raise exception 'job_title_required'; end if;
+  if v_kind not in ('', 'setup', 'fab') then v_kind := ''; end if;
   if v_car is not null then
     select driver_id into cd from public.cars where id = v_car;
     if cd is null then raise exception 'not_found'; end if;
@@ -1772,19 +1778,27 @@ begin
   if v_drv is not null and not exists (select 1 from public.drivers where id = v_drv) then raise exception 'not_found'; end if;
   if v_staff is not null and not exists (select 1 from public.staff where id = v_staff and active) then raise exception 'not_found'; end if;
   if p_id is null then
-    insert into public.jobs (driver_id, car_id, title, note, staff_id, due_date, created_by)
-    values (v_drv, v_car, v_title, trim(coalesce(p->>'note', '')), v_staff, v_due, coalesce(a->>'name', ''))
+    insert into public.jobs (driver_id, car_id, title, note, staff_id, due_date, kind, created_by)
+    values (v_drv, v_car, v_title, trim(coalesce(p->>'note', '')), v_staff, v_due, v_kind, coalesce(a->>'name', ''))
     returning id, ref into v, v_ref;
+    -- الشغلانات: نص، أو {title, staff_id}
     if jsonb_typeof(p->'tasks') = 'array' then
-      for t in select trim(value) from jsonb_array_elements_text(p->'tasks') loop
+      for x in select value from jsonb_array_elements(p->'tasks') loop
+        if jsonb_typeof(x) = 'object' then
+          t := trim(coalesce(x->>'title', ''));
+          ts := nullif(x->>'staff_id', '')::uuid;
+          if ts is not null and not exists (select 1 from public.staff where id = ts and active) then ts := null; end if;
+        else
+          t := trim(coalesce(x #>> '{}', '')); ts := null;
+        end if;
         continue when t = '';
         n := n + 1;
-        insert into public.job_lines (job_id, kind, title, sort, created_by) values (v, 'task', left(t, 300), n, coalesce(a->>'name', ''));
+        insert into public.job_lines (job_id, kind, title, sort, staff_id, created_by) values (v, 'task', left(t, 300), n, ts, coalesce(a->>'name', ''));
       end loop;
     end if;
   else
     update public.jobs set driver_id = v_drv, car_id = v_car, title = v_title, note = trim(coalesce(p->>'note', '')),
-           staff_id = v_staff, due_date = v_due, updated_at = now()
+           staff_id = v_staff, due_date = v_due, kind = case when p ? 'kind' then v_kind else kind end, updated_at = now()
      where id = p_id returning id, ref into v, v_ref;
     if v is null then raise exception 'not_found'; end if;
   end if;
@@ -1814,9 +1828,11 @@ declare
   v_title text := trim(coalesce(p->>'title', ''));
   v_qty numeric := round(coalesce(nullif(p->>'qty', '')::numeric, 1), 2);
   v_unit text := trim(coalesce(p->>'unit', ''));
+  v_st uuid := nullif(p->>'staff_id', '')::uuid;
   pi public.price_items%rowtype; s int; v uuid;
 begin
   if not exists (select 1 from public.jobs where id = p_job) then raise exception 'not_found'; end if;
+  if v_st is not null and not exists (select 1 from public.staff where id = v_st and active) then raise exception 'not_found'; end if;
   if v_kind not in ('task', 'material') then raise exception 'bad_kind'; end if;
   if v_pi is not null then
     select * into pi from public.price_items where id = v_pi;
@@ -1827,8 +1843,8 @@ begin
   if v_title = '' then raise exception 'name_required'; end if;
   if v_qty <= 0 then raise exception 'bad_qty'; end if;
   select coalesce(max(sort), 0) + 1 into s from public.job_lines where job_id = p_job and kind = v_kind;
-  insert into public.job_lines (job_id, kind, title, qty, unit, price_item_id, sort, created_by)
-  values (p_job, v_kind, left(v_title, 300), v_qty, v_unit, v_pi, s, coalesce(a->>'name', ''))
+  insert into public.job_lines (job_id, kind, title, qty, unit, price_item_id, sort, staff_id, created_by)
+  values (p_job, v_kind, left(v_title, 300), v_qty, v_unit, v_pi, s, v_st, coalesce(a->>'name', ''))
   returning id into v;
   update public.jobs set updated_at = now() where id = p_job;
   return v;
@@ -1845,6 +1861,24 @@ begin
    where id = p_id returning job_id into jid;
   if jid is null then raise exception 'not_found'; end if;
   update public.jobs set updated_at = now() where id = jid;
+end $$;
+
+-- الشغلانة دي على مين (null = محدش)
+create or replace function public.job_line_assign(p_token text, p_id uuid, p_staff uuid)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); jid uuid;
+begin
+  if p_staff is not null and not exists (select 1 from public.staff where id = p_staff and active) then raise exception 'not_found'; end if;
+  update public.job_lines set staff_id = p_staff where id = p_id returning job_id into jid;
+  if jid is null then raise exception 'not_found'; end if;
+  update public.jobs set updated_at = now() where id = jid;
+end $$;
+
+-- المساعد: مين اللي بيكلمه (السيرفر بيتأكد إن الجلسة شغالة قبل ما يبعت للـ AI)
+create or replace function public.ai_whoami(p_token text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+begin
+  return public._actor(p_token);
 end $$;
 
 create or replace function public.job_line_done(p_token text, p_id uuid, p_done boolean)
