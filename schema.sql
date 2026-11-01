@@ -2473,3 +2473,162 @@ begin
 exception when others then
   raise notice 'cron setup skipped: %', sqlerrm;
 end $cron$;
+
+-- =====================================================================
+-- v21: رسايل المدير لكل موظف + الشغلانة اللي فيها مشكلة + المشتريات والمصاريف + قفل الشهر
+-- =====================================================================
+-- رسايل المدير (staff_id فاضي = للإدارة)
+create table if not exists public.staff_msgs (
+  id uuid primary key default gen_random_uuid(),
+  staff_id uuid references public.staff(id) on delete cascade,
+  kind text not null default 'info',          -- task / ask / alert / info
+  body text not null,
+  job_id uuid references public.jobs(id) on delete set null,
+  line_ids uuid[] not null default '{}',
+  created_at timestamptz not null default now(),
+  seen_at timestamptz
+);
+create index if not exists staff_msgs_to_idx on public.staff_msgs (staff_id, created_at desc);
+alter table public.staff_msgs enable row level security;
+revoke all on public.staff_msgs from anon, authenticated;
+
+-- رسايلي (آخر ٧ أيام) وبتتعلّم إنها اتشافت
+create or replace function public.my_msgs(p_token text, p_seen boolean default false)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); me uuid := case when a->>'kind' = 'staff' then (a->>'id')::uuid end; r jsonb;
+begin
+  select coalesce(jsonb_agg(to_jsonb(m) order by m.created_at), '[]'::jsonb) into r
+    from (select id, kind, body, job_id, line_ids, created_at, seen_at from public.staff_msgs
+           where staff_id is not distinct from me and created_at > now() - interval '7 days'
+           order by created_at desc limit 40) m;
+  if p_seen then
+    update public.staff_msgs set seen_at = now() where staff_id is not distinct from me and seen_at is null;
+  end if;
+  return r;
+end $$;
+
+-- شغلانة فيها مشكلة (السبب بيتسجل، والإدارة بيجيلها رسالة)
+alter table public.job_lines add column if not exists problem text not null default '';
+create or replace function public.job_line_problem(p_token text, p_id uuid, p_reason text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); l record;
+begin
+  update public.job_lines set problem = left(coalesce(trim(p_reason), ''), 300) where id = p_id and kind = 'task'
+  returning job_id, title into l;
+  if l.job_id is null then raise exception 'not_found'; end if;
+  update public.jobs set updated_at = now() where id = l.job_id;
+  if coalesce(trim(p_reason), '') <> '' then
+    insert into public.staff_msgs (staff_id, kind, body, job_id, line_ids)
+    values (null, 'alert', coalesce(a->>'name', '') || ': مشكلة في «' || l.title || '» (' || (select ref from public.jobs where id = l.job_id) || ') — ' || trim(p_reason), l.job_id, array[p_id]);
+  end if;
+end $$;
+-- لما الشغلانة تخلص المشكلة بتتشال
+create or replace function public._line_done_clear() returns trigger language plpgsql as $$
+begin
+  if new.done and not coalesce(old.done, false) then new.problem := ''; end if;
+  return new;
+end $$;
+drop trigger if exists job_lines_done_clear on public.job_lines;
+create trigger job_lines_done_clear before update of done on public.job_lines for each row execute function public._line_done_clear();
+
+-- المشتريات والمصاريف
+create table if not exists public.expenses (
+  id uuid primary key default gen_random_uuid(),
+  item text not null,
+  qty numeric(12,2) not null default 1,
+  price numeric(12,2) not null check (price >= 0),     -- الإجمالي بالجنيه
+  shop text not null default '',
+  job_id uuid references public.jobs(id) on delete set null,
+  staff_id uuid references public.staff(id) on delete set null,
+  staff_name text not null default '',
+  note text not null default '',
+  receipt_path text,
+  spent_on date not null default ((now() at time zone 'Africa/Cairo')::date),
+  created_at timestamptz not null default now()
+);
+create index if not exists expenses_day_idx on public.expenses (spent_on desc);
+create index if not exists expenses_job_idx on public.expenses (job_id);
+alter table public.expenses enable row level security;
+revoke all on public.expenses from anon, authenticated;
+
+create table if not exists public.month_closes (
+  month text primary key,                       -- YYYY-MM
+  total numeric(14,2) not null default 0,
+  report jsonb not null default '{}'::jsonb,
+  closed_at timestamptz not null default now()
+);
+alter table public.month_closes enable row level security;
+revoke all on public.month_closes from anon, authenticated;
+
+create or replace function public.receipt_ticket(p_token text)
+returns text language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); v text;
+begin
+  delete from public.upload_tickets where expires_at < now();
+  v := 'receipts/' || to_char(now() at time zone 'Africa/Cairo', 'YYYY-MM') || '/' || encode(gen_random_bytes(9), 'hex') || '.jpg';
+  insert into public.upload_tickets (path, kind) values (v, 'up');
+  return v;
+end $$;
+
+create or replace function public.expense_add(p_token text, p jsonb)
+returns uuid language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); v uuid; d date := coalesce(nullif(p->>'spent_on', '')::date, (now() at time zone 'Africa/Cairo')::date);
+begin
+  if coalesce(trim(p->>'item'), '') = '' then raise exception 'empty'; end if;
+  if exists (select 1 from public.month_closes where month = to_char(d, 'YYYY-MM')) then raise exception 'month_closed'; end if;
+  insert into public.expenses (item, qty, price, shop, job_id, staff_id, staff_name, note, receipt_path, spent_on)
+  values (trim(p->>'item'), coalesce(nullif(p->>'qty', '')::numeric, 1), coalesce(nullif(p->>'price', '')::numeric, 0),
+          coalesce(trim(p->>'shop'), ''), nullif(p->>'job_id', '')::uuid,
+          case when a->>'kind' = 'staff' then (a->>'id')::uuid else nullif(p->>'staff_id', '')::uuid end,
+          coalesce(a->>'name', ''), coalesce(p->>'note', ''), nullif(p->>'receipt_path', ''), d)
+  returning id into v;
+  if v is not null and nullif(p->>'job_id', '') is not null then update public.jobs set updated_at = now() where id = (p->>'job_id')::uuid; end if;
+  return v;
+end $$;
+
+-- المصاريف (الإدارة: الكل، الموظف: اللي هو سجّله بس)
+create or replace function public.expenses_list(p_token text, p_from date, p_to date)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  return coalesce((select jsonb_agg(jsonb_build_object('id', e.id, 'item', e.item, 'qty', e.qty, 'price', e.price, 'shop', e.shop,
+            'job_id', e.job_id, 'job', j.ref, 'car', c.name, 'driver', d.name, 'staff', e.staff_name, 'note', e.note,
+            'receipt', e.receipt_path, 'date', e.spent_on) order by e.spent_on, e.created_at)
+    from public.expenses e left join public.jobs j on j.id = e.job_id left join public.cars c on c.id = j.car_id left join public.drivers d on d.id = j.driver_id
+   where e.spent_on between p_from and p_to
+     and (a->>'kind' = 'admin' or e.staff_id = (a->>'id')::uuid)), '[]'::jsonb);
+end $$;
+
+create or replace function public.month_closes_list(p_token text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  if a->>'kind' <> 'admin' then raise exception 'admin_only'; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('month', month, 'total', total, 'closed_at', closed_at) order by month desc) from public.month_closes), '[]'::jsonb);
+end $$;
+
+-- قفل الشهر: التحليل بيتحفظ، وصور الفواتير بتتمسح (الأرقام بتفضل)
+create or replace function public.month_close(p_token text, p_month text, p_report jsonb)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); f date; paths text[]; tot numeric;
+begin
+  if a->>'kind' <> 'admin' then raise exception 'admin_only'; end if;
+  if p_month !~ '^\d{4}-\d{2}$' then raise exception 'bad_month'; end if;
+  f := (p_month || '-01')::date;
+  if f >= date_trunc('month', (now() at time zone 'Africa/Cairo'))::date then raise exception 'month_not_over'; end if;
+  select coalesce(array_agg(distinct receipt_path), '{}'), 0 into paths, tot
+    from public.expenses where spent_on >= f and spent_on < (f + interval '1 month')::date and receipt_path is not null;
+  select coalesce(sum(price), 0) into tot from public.expenses where spent_on >= f and spent_on < (f + interval '1 month')::date;
+  insert into public.month_closes (month, total, report) values (p_month, tot, coalesce(p_report, '{}'::jsonb))
+  on conflict (month) do update set total = excluded.total, report = excluded.report, closed_at = now();
+  update public.expenses set receipt_path = null where spent_on >= f and spent_on < (f + interval '1 month')::date;
+  insert into public.upload_tickets (path, kind, expires_at) select x, 'del', now() + interval '30 minutes' from unnest(paths) x
+  on conflict (path) do update set kind = 'del', expires_at = excluded.expires_at;
+  return jsonb_build_object('total', tot, 'paths', to_jsonb(paths));
+end $$;
+
+revoke execute on function public._line_done_clear() from public, anon, authenticated;
+grant execute on function public.my_msgs(text, boolean), public.job_line_problem(text, uuid, text), public.receipt_ticket(text),
+  public.expense_add(text, jsonb), public.expenses_list(text, date, date), public.month_closes_list(text), public.month_close(text, text, jsonb),
+  public.job_lines_plan(text, jsonb), public.push_subscribe(text, text, text, text), public.push_unsubscribe(text, text)
+  to anon, authenticated;

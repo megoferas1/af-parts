@@ -1,5 +1,5 @@
 /* push.js — إشعارات الموبايل (المدير بيبعت لكل موظف شغله وبيسأله خلص إيه) */
-import { call } from './api.js?v=20';
+import { call } from './api.js?v=21';
 
 export const VAPID_PUBLIC_KEY = 'BAppFXkCF1j_t2ouZUNnVYl1MFq88_qAMB2FsnwBdz8xPaavxNnLi8KOypIeRNlOulPqBLoVrDPg54vDBZ-kU9E';
 

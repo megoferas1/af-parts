@@ -1,20 +1,21 @@
 /* assistant.js — «المدير»: مساعد بتكلمه عربي أو إنجليزي، بيرد من بيانات السيستم وبيعمل الحاجات بعد ما توافق
    الذكاء من Gemini (مجاني) عن طريق Supabase Edge Function اسمها ai — المفتاح هناك مش هنا.
    ولو الذكاء مش متاح، الزراير اللي تحت والبحث العادي شغالين. */
-import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=20';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=20';
-import { sb, call, errText, staffSession } from './api.js?v=20';
-import { useStore, getStore, reload, canInvoice } from './store.js?v=20';
-import * as L from './lib.js?v=20';
-import { ItemSheet, startNewItem, InstallForm } from './items.js?v=20';
-import { DriverSheet } from './drivers.js?v=20';
-import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=20';
-import { TripSheet, TripForm } from './trips.js?v=20';
-import { ShipmentSheet, ShipmentForm } from './export.js?v=20';
-import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=20';
-import { FileReady } from './stickers.js?v=20';
-import { LogSheet } from './log.js?v=20';
-import { scanOpen } from './home.js?v=20';
+import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=21';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=21';
+import { sb, call, errText, staffSession } from './api.js?v=21';
+import { useStore, getStore, reload, canInvoice } from './store.js?v=21';
+import * as L from './lib.js?v=21';
+import { ItemSheet, startNewItem, InstallForm } from './items.js?v=21';
+import { DriverSheet } from './drivers.js?v=21';
+import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=21';
+import { TripSheet, TripForm } from './trips.js?v=21';
+import { ShipmentSheet, ShipmentForm } from './export.js?v=21';
+import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=21';
+import { FileReady } from './stickers.js?v=21';
+import { LogSheet } from './log.js?v=21';
+import { scanOpen } from './home.js?v=21';
+import { prepReceipt, uploadReceipt, expensesIn, analyze, monthReport, monthPdf, closeMonth, egp, monthOf, lastMonth, monthName, carOf } from './money.js?v=21';
 
 /* ============================================================ أدوات صغيرة */
 const st = () => getStore();
@@ -250,6 +251,42 @@ const READ = {
       };
     },
   },
+  report_problem: {
+    d: 'الموظف قال إن فيه مشكلة واقفاه في شغلانة (مستني قطعة، مش فاهم، محتاج حد معاه، عطل...). بتتسجل على الشغلانة والإدارة يجيلها إشعار على طول. لو السبب مش واضح اسأله الأول «إيه اللي واقفك؟»',
+    p: S_('object', { job: str('أمر الشغل أو العربية'), task: str('الشغلانة'), reason: str('السبب باختصار') }, ['job', 'task', 'reason']),
+    async run(a) {
+      const j = findJob(a.job); if (j.many) return ambig('أمر شغل', j.many, (x) => jobOut(x)); if (!j.one) return notFound('أمر شغل', a.job);
+      const t = pick((j.one.lines || []).filter((l) => l.kind === 'task'), a.task, (l) => l.title);
+      if (!t.one) return t.many ? ambig('شغلانة', t.many, (l) => l.title) : notFound('شغلانة', a.task);
+      await call('job_line_problem', { p_id: t.one.id, p_reason: String(a.reason || '').trim() });
+      fnCall({ action: 'notify', problem_line: t.one.id }).catch(() => {});
+      reload().catch(() => {});
+      return { ok: 'اتسجلت والإدارة اتبلّغت', task: t.one.title, job: j.one.ref };
+    },
+  },
+  expenses: {
+    d: 'المشتريات والمصاريف في فترة (الإدارة تشوف الكل، والموظف يشوف اللي هو اشتراه): كل حاجة بسعرها ومحلها وعربيتها، والإجمالي متقسم على العربيات والموظفين والمحلات',
+    p: S_('object', { from: str('من YYYY-MM-DD (افتراضي: أول الشهر)'), to: str('لحد YYYY-MM-DD (افتراضي: النهارده)'), job: str('أمر شغل أو عربية معينة (اختياري)') }),
+    async run(a) {
+      const from = a.from || L.todayStr().slice(0, 8) + '01', to = a.to || L.todayStr();
+      let list = await expensesIn(from, to);
+      if (a.job) { const j = findJob(a.job); if (j.one) list = list.filter((e) => e.job_id === j.one.id); }
+      const r = analyze(list);
+      return { from, to, ...r, items: list.slice(-60).map((e) => ({ date: e.date, item: e.item, qty: Number(e.qty), price: Math.round(e.price), shop: e.shop, car: carOf(e), by: e.staff, receipt: !!e.receipt })) };
+    },
+  },
+  month_report: {
+    d: 'تحليل مصاريف شهر كامل للإدارة: الإجمالي، على كل عربية، كل موظف صرف كام، المحلات، أغلى الحاجات، والمقارنة بالشهر اللي قبله. الابلكيشن بيطلّع زرار PDF. بعد التحليل اسأل الإدارة لو عايزة تقفل الشهر',
+    p: S_('object', { month: str('YYYY-MM (افتراضي: الشهر اللي فات)') }),
+    admin: true,
+    async run(a) {
+      const m = /^\d{4}-\d{2}$/.test(a.month || '') ? a.month : lastMonth();
+      const rep = await monthReport(m);
+      push({ kind: 'month', rep });
+      const { _list, ...out } = rep;
+      return out;
+    },
+  },
   present_today: {
     d: 'مين حاضر النهارده في الجراش ومين غايب أو أجازة (من أبلكيشن الحضور)، ومواعيد الشيفت (shifts: ميعاد حضور كل واحد، shift_hours: ساعات اليوم)',
     async run() {
@@ -410,7 +447,8 @@ const WRITE = {
       if (!drv) drv = await call('save_driver', { p_id: null, p_name: o.a.driver, p_phone: o.a.driver_phone || '', p_note: '' });
       if (!car) car = await call('save_car', { p_id: null, p_driver: drv, p_name: o.a.car, p_plate: '', p_note: '' });
       const r = await call('job_save', { p_id: null, p: { driver_id: drv, car_id: car, kind: o.a.kind || '', title: o.a.title, note: o.a.note || '', staff_id: o.staff ? o.staff.id : null, due_date: o.a.due_date || null, tasks: o.tasks.map((t) => ({ title: t.title, staff_id: t.staff_id })) } });
-      return { done: 'أمر الشغل اتعمل ' + r.ref, ref: r.ref, _refs: [['job', r.id, r.ref]] };
+      notifyStaff([r.id]);
+      return { done: 'أمر الشغل اتعمل ' + r.ref + ' واتبعت لكل موظف شغله', ref: r.ref, _refs: [['job', r.id, r.ref]] };
     },
   },
   add_tasks: {
@@ -429,6 +467,7 @@ const WRITE = {
     card: (o) => ({ title: 'شغلانات على ' + o.job.ref, icon: 'plus', list: o.tasks.map((t) => t.title + (t.staff ? ' ← ' + t.staff : '')) }),
     async exec(o) {
       for (const t of o.tasks) await call('job_line_add', { p_job: o.job.id, p: { kind: 'task', title: t.title, staff_id: t.staff_id } });
+      notifyStaff([o.job.id], o.tasks.map((t) => t.staff_id));
       return { done: 'اتضافت ' + o.tasks.length + ' شغلانة على ' + o.job.ref };
     },
   },
@@ -451,7 +490,8 @@ const WRITE = {
     card: (o) => ({ title: 'توزيع الشغل · ' + o.job.ref, icon: 'user', list: o.list.map((x) => x.line.title + ' ← ' + (x.staff ? x.staff.name : 'محدش')) }),
     async exec(o) {
       for (const x of o.list) await call('job_line_assign', { p_id: x.line.id, p_staff: x.staff ? x.staff.id : null });
-      return { done: 'الشغل اتوزع' };
+      notifyStaff([o.job.id], o.list.map((x) => x.staff && x.staff.id));
+      return { done: 'الشغل اتوزع واتبعت لكل موظف' };
     },
   },
   set_skill: {
@@ -490,8 +530,53 @@ const WRITE = {
     card: (o) => ({ title: 'خطة الشغل', icon: 'cal', list: [...o.list].sort((a, b) => (a.date < b.date ? -1 : 1)).map((x) => dayLabel(x.date) + ' · ' + (x.staff ? x.staff.name : staffName(x.line.staff_id) || 'محدش') + ' ← ' + x.line.title + ' (' + x.job.ref + ')') }),
     async exec(o) {
       const n = await call('job_lines_plan', { p_items: o.list.map((x) => ({ id: x.line.id, date: x.date, ...(x.staff ? { staff_id: x.staff.id } : {}) })) });
+      notifyStaff([...new Set(o.list.map((x) => x.job.id))], o.list.map((x) => (x.staff ? x.staff.id : x.line.staff_id)));
       return { done: 'اتقسمت ' + n + ' شغلانة' };
     },
+  },
+  add_expense: {
+    d: 'سجّل مشتريات أو مصروف (حاجة اتشرت بفلوس): الحاجة، العدد، السعر، المحل، والعربية/أمر الشغل. لو فيه صورة فاتورة اتبعتت في الشات بتتحفظ معاها لوحدها. اقرا من الصورة الحاجات والأسعار والمحل',
+    p: S_('object', {
+      items: arr(S_('object', { item: str('الحاجة'), qty: num('العدد'), price: num('السعر الإجمالي للبند بالجنيه') }, ['item', 'price']), 'الحاجات اللي اتشرت'),
+      shop: str('اسم المحل'), job: str('أمر الشغل أو العربية اللي اتشرت عشانها (فاضي = مصاريف عامة)'), date: str('YYYY-MM-DD لو مش النهارده'), note: str('ملاحظة'),
+    }, ['items']),
+    check(a) {
+      const items = (a.items || []).map((x) => ({ item: String(x.item || '').trim(), qty: Number(x.qty) > 0 ? Number(x.qty) : 1, price: Number(x.price) })).filter((x) => x.item);
+      if (!items.length) return { error: 'مفيش حاجات' };
+      const noPrice = items.filter((x) => !(x.price >= 0) || Number.isNaN(x.price));
+      if (noPrice.length) return { error: 'missing_price', items: noPrice.map((x) => x.item), hint: 'اسأل الموظف دفع كام' };
+      let job = null;
+      if (a.job) { const j = findJob(a.job); if (j.many) return ambig('أمر شغل', j.many, (x) => jobOut(x)); job = j.one || null; if (!job) return notFound('أمر شغل', a.job); }
+      return { ok: { items, shop: String(a.shop || '').trim(), job, date: /^\d{4}-\d{2}-\d{2}$/.test(a.date || '') ? a.date : L.todayStr(), note: a.note || '', img: LAST_IMG } };
+    },
+    card: (o) => ({
+      title: 'مشتريات · ' + egp(L.sum(o.items, (x) => x.price)), icon: 'file',
+      rows: [o.shop && ['المحل', o.shop], ['على', o.job ? o.job.ref + ' ' + jobOut(o.job).car : 'مصاريف عامة'], o.date !== L.todayStr() && ['اليوم', L.fmtDate(o.date)], o.img && ['الفاتورة', 'الصورة هتتحفظ ✓']],
+      list: o.items.map((x) => x.item + (x.qty !== 1 ? ' × ' + x.qty : '') + ' — ' + egp(x.price)),
+      warn: !o.shop ? 'مفيش اسم محل' : '',
+    }),
+    async exec(o) {
+      let path = null;
+      if (o.img) { try { path = await uploadReceipt(o.img.blob); } catch (e) { /* تتسجل من غير صورة */ } }
+      for (const x of o.items) await call('expense_add', { p: { item: x.item, qty: x.qty, price: x.price, shop: o.shop, job_id: o.job ? o.job.id : null, spent_on: o.date, note: o.note, receipt_path: path } });
+      if (o.img === LAST_IMG) LAST_IMG = null;
+      return { done: 'اتسجلت ' + o.items.length + ' حاجة بـ ' + egp(L.sum(o.items, (x) => x.price)) + (path ? ' ومعاها صورة الفاتورة' : '') };
+    },
+  },
+  close_month: {
+    d: 'اقفل شهر بعد ما الإدارة شافت تحليله: التحليل يتحفظ، وصور الفواتير بتاعة الشهر ده تتمسح عشان المساحة، والأرقام تفضل. بس لو الإدارة قالت «اقفل الشهر»',
+    p: S_('object', { month: str('YYYY-MM') }, ['month']),
+    admin: true,
+    async check(a) {
+      const m = /^\d{4}-\d{2}$/.test(a.month || '') ? a.month : lastMonth();
+      if (m >= monthOf(L.todayStr())) return { error: 'الشهر لسه ما خلصش' };
+      const rep = await monthReport(m);
+      if (rep.closed) return { error: 'الشهر ده مقفول قبل كده' };
+      return { ok: { rep } };
+    },
+    card: (o) => ({ title: 'اقفل شهر ' + o.rep.name, icon: 'lock', rows: [['الإجمالي', egp(o.rep.total)], ['المشتريات', String(o.rep.count)], ['صور الفواتير', o.rep.receipts + ' صورة']],
+      warn: o.rep.receipts ? 'صور الفواتير بتاعة الشهر ده هتتمسح. الأرقام والتحليل هيفضلوا محفوظين.' : '' }),
+    async exec(o) { const r = await closeMonth(o.rep); return { done: 'الشهر اتقفل · اتمسح ' + r.removed + ' صورة فاتورة' }; },
   },
   tasks_done: {
     d: 'علّم إن شغلانات خلصت (أو رجّعها لسه)',
@@ -505,7 +590,9 @@ const WRITE = {
         const t = pick(tasks, q, (l) => l.title); if (!t.one) return t.many ? ambig('شغلانة', t.many, (l) => l.title) : notFound('شغلانة', q);
         sel.push(t.one);
       }
-      return { ok: { job: j.one, sel: [...new Set(sel)], done: a.done !== false } };
+      const uniq = [...new Set(sel)], done = a.done !== false;
+      if (uniq.length && uniq.every((l) => !!l.done === done)) return { already: true, note: 'متعلّمة خلاص، ما تعملش حاجة وكمّل كلامك' };
+      return { ok: { job: j.one, sel: uniq.filter((l) => !!l.done !== done), done } };
     },
     card: (o) => ({ title: (o.done ? 'خلصت ✓ · ' : 'لسه · ') + o.job.ref, icon: 'check', list: o.sel.map((l) => l.title) }),
     async exec(o) { for (const l of o.sel) await call('job_line_done', { p_id: l.id, p_done: o.done }); return { done: 'اتعلّم على ' + o.sel.length }; },
@@ -738,7 +825,7 @@ function systemText() {
   const drivers = data.drivers.slice(0, 250).map((d) => d.name + ((idx.carsByDriver.get(d.id) || []).length ? ' [' + idx.carsByDriver.get(d.id).map((c) => c.name).join('، ') + ']' : '')).join(' · ');
   return `إنت «المدير»، مساعد جراش AF Fabworks جوه ابلكيشن AF Parts. الجراش في العاشر من رمضان: فابريكيشن وتجهيز عربيات دريفت، تصنيع قطع وتصديرها (كيت زاوية ANG، قواعد ماتور ENG، دراعات ARM، ضبط تو TOE، رول كيج CAG، تعليق SUS، شاسيه CHS)، صيانة عربيات السواقين، وطلعات سباق وتمرين.
 
-النهارده ${L.todayStr()} يوم ${DAYN[new Date(L.todayStr() + 'T12:00:00').getDay()]} (${L.fmtDate(L.todayStr())}). اللي بيكلمك: ${me.kind === 'admin' ? 'الإدارة' : me.name + ' (موظف)'}${canInvoice() ? '، ومعاه صلاحية الفواتير والأسعار' : '، ومعندوش صلاحية فواتير أو أسعار (ما تقولش أسعار خالص)'}.
+النهارده ${L.todayStr()} يوم ${DAYN[new Date(L.todayStr() + 'T12:00:00').getDay()]} (${L.fmtDate(L.todayStr())}). اللي بيكلمك: ${me.kind === 'admin' ? 'الإدارة' : me.name + ' (موظف)'}${canInvoice() ? '، ومعاه صلاحية الفواتير والأسعار' : '، ومعندوش صلاحية فواتير أو أسعار بيع (ما تقولش أسعار البيع ولا الفواتير خالص، بس مشترياته هو سجّلها بسعرها عادي)'}.
 الموظفين واللي كل واحد بيعرف يعمله (المدير بيتعلمه لوحده من الشغل اللي اتوزع عليه قبل كده): ${data.staff.map((s) => s.name + ' [' + (s.skill || 'لسه مفيش') + ']').join(' · ') || 'مفيش'}.
 السواقين وعربياتهم: ${drivers || 'مفيش'}.
 ${(NOTES || []).length ? 'اللي الإدارة علّمتهولك قبل كده (اتبعه دايماً، وهو أهم من أي كلام تحت):\n' + NOTES.map((n) => '• ' + n.note).join('\n') : ''}
@@ -772,8 +859,47 @@ ${(NOTES || []).length ? 'اللي الإدارة علّمتهولك قبل كد
 - الفواتير: هات الأسعار من prices الأول واستخدم price_item_id أو product_id. السواقين غالباً بالجنيه وعربي، وعملاء التصدير بالدولار وإنجليزي. لو بند ملوش سعر اسأل عليه. بعد ما الفاتورة تتعمل، الابلكيشن بيطلّع زرار PDF يتبعت واتساب.
 - مسح أي حاجة أو التراجع عن حركة مش من عندك: قول للمستخدم يعملها من الابلكيشن (للإدارة بس).
 - التركيب على عربية والصور والاستيكرات: افتح الشاشة بأداة open.
-- التواريخ اكتبها YYYY-MM-DD في الأدوات. «بكرة» = ${L.addDays(L.todayStr(), 1)}.`;
+- متابعة الموظفين (لما اللي بيكلمك موظف): إنت مديره، وبتتابع معاه كل خطوة. ردّه غالباً على رسالة من رسايلك اللي تحت.
+  • لو قال خلص حاجة: علّمها بـ tasks_done (لو مش متعلّمة)، وبعدها اسأله سؤال واحد بس لو لازم: شغل لحام أو تصنيع ← «استخدمت خامات؟ إيه وكام؟» وسجّلها add_material. تركيب ← «ركبت قطع جديدة ولا بتاعة السواق؟». وبعدها قوله الشغلانة اللي بعدها.
+  • لو قال اشترى حاجة أو بعت صورة فاتورة: اقرا الصورة كويس (الحاجات والأسعار والمحل). اللي ناقص من (السعر، المحل، لأنهي عربية) اسأل عليه مرة واحدة في سؤال واحد، وبعدها نادي add_expense. لو العربية مش متقالة وهو شغال على عربية واحدة بس، اعتبرها هي.
+  • لو قال فيه حاجة واقفاه أو مش هيخلص: اسأل «إيه اللي واقفك؟» لو مش واضح، وبعدها report_problem (بتبلّغ الإدارة لوحدها). واقترح عليه يعمل إيه لحد ما تتحل (شغلانة تانية من شغله).
+  • ما تسألش عن حاجة قالها قبل كده في الشات أو في الرسايل. ردودك للموظف قصيرة جداً.
+- المصاريف للإدارة: «صرفنا كام؟» ← expenses. «تحليل الشهر» أو «اقفل الشهر» ← month_report الأول (الأرقام والمقارنة باختصار وأهم ملاحظة: أغلى عربية، محل غالي، زيادة كبيرة)، وبعدها لو قالت «اقفل» نادي close_month.
+- التواريخ اكتبها YYYY-MM-DD في الأدوات. «بكرة» = ${L.addDays(L.todayStr(), 1)}.${inboxText()}`;
 }
+
+/* ============================================================ رسايل المدير لكل واحد */
+let INBOX = [];         // آخر رسايل المدير للي داخل (من السيرفر)
+const SHOWN = new Set();
+export async function loadInbox(seen = false) {
+  try { INBOX = (await call('my_msgs', { p_seen: !!seen })) || []; emit(); } catch (e) { /* قبل التحديث */ }
+  return INBOX;
+}
+export const unreadCount = () => INBOX.filter((m) => !m.seen_at && !SHOWN.has(m.id)).length;
+export function useInbox() { useChat(); return unreadCount(); }
+async function showInbox() {
+  const before = await loadInbox(false);
+  const fresh = before.filter((m) => !m.seen_at && !SHOWN.has(m.id));
+  const today = before.filter((m) => String(m.created_at).slice(0, 10) >= L.addDays(L.todayStr(), -1) && !SHOWN.has(m.id));
+  const show = fresh.length ? fresh : MSGS.length ? [] : today.slice(-3);
+  for (const m of show) { SHOWN.add(m.id); push({ kind: 'boss', msg: m }); }
+  if (fresh.length) call('my_msgs', { p_seen: true }).then((r) => { INBOX = r || INBOX; emit(); }).catch(() => {});
+}
+function inboxText() {
+  const list = INBOX.slice(-8);
+  if (!list.length) return '';
+  return '\nرسايل إنت بعتها للي بيكلمك آخر كام يوم (عشان تفهم رده وتتابع عليها، وما تسألش تاني عن حاجة اتردت):\n' + list.map((m) => '• ' + String(m.created_at).slice(5, 16).replace('T', ' ') + ' — ' + String(m.body).replace(/\s+/g, ' ').slice(0, 260)).join('\n');
+}
+// الإدارة وزّعت شغل: كل موظف يجيله رسالة وإشعار على طول (من السيرفر)
+function notifyStaff(jobs, staff) {
+  if (!isAdmin()) return;
+  const ids = (staff || []).filter(Boolean);
+  fnCall({ action: 'notify', jobs, ...(ids.length ? { staff: [...new Set(ids)] } : {}) }).catch(() => {});
+}
+
+/* صورة (فاتورة) مبعوتة في الشات */
+let LAST_IMG = null;
+let DRAFT = null;       // يحط كلام في خانة الكتابة
 
 /* ============================================================ الكلام مع السيرفر */
 let HIST = [];          // كلام Gemini (contents)
@@ -787,7 +913,7 @@ let OWNER = null;
 function ownerCheck() {
   const me = (getStore().data || {}).me || {};
   const k = me.kind === 'admin' ? 'admin' : (me.id || me.name || '');
-  if (OWNER !== null && OWNER !== k) { HIST = []; MSGS = []; BUSY = false; }
+  if (OWNER !== null && OWNER !== k) { HIST = []; MSGS = []; BUSY = false; INBOX = []; SHOWN.clear(); LAST_IMG = null; }
   OWNER = k;
 }
 function patch(id, p) { MSGS = MSGS.map((m) => (m.id === id ? { ...m, ...p } : m)); emit(); }
@@ -869,14 +995,16 @@ async function runTool(fc) {
   }
 }
 
-export async function send(text) {
+export async function send(text, img) {
   text = String(text || '').trim();
   ownerCheck();
-  if (!text || BUSY) return;
+  if ((!text && !img) || BUSY) return;
+  if (!text) text = 'دي صورة فاتورة';
   BUSY = true; emit();
   if (NOTES === null) await loadNotes();
-  push({ kind: 'me', text });
-  HIST.push({ role: 'user', parts: [{ text }] });
+  push({ kind: 'me', text, img: img && img.url });
+  if (img) LAST_IMG = img;
+  HIST.push({ role: 'user', parts: img ? [{ text: text + '\n[مع الرسالة صورة]' }, { inlineData: { mimeType: 'image/jpeg', data: img.b64 } }] : [{ text }] });
   const thinking = push({ kind: 'wait' });
   const turnRefs = [];
   try {
@@ -904,6 +1032,8 @@ export async function send(text) {
     push({ kind: 'err', text: aiErrText(e) });
     localAnswer(text);
   }
+  // الصورة تقيلة: بعد ما الرد يخلص بنشيلها من الكلام اللي بيتبعت تاني
+  HIST = HIST.map((h) => (h.parts.some((p) => p.inlineData) ? { ...h, parts: h.parts.map((p) => (p.inlineData ? { text: '[صورة اتقرت قبل كده]' } : p)) } : h));
   MSGS = MSGS.filter((m) => m.id !== thinking);
   if (turnRefs.length) push({ kind: 'refs', refs: dedupe(turnRefs).slice(0, 6) });
   BUSY = false; emit();
@@ -991,8 +1121,47 @@ function InvoiceMsg({ m }) {
   </div>`;
 }
 
+/* رسالة من المدير (اتبعتت كإشعار): الشغلانات بزرار «خلصت» و«مشكلة» */
+function BossMsg({ m }) {
+  const { data } = useStore();
+  const msg = m.msg;
+  const lines = (msg.line_ids || []).map((id) => { for (const j of data.jobs) { const l = (j.lines || []).find((x) => x.id === id); if (l) return { l, j }; } return null; }).filter(Boolean);
+  const [busy, setBusy] = useState('');
+  async function done({ l, j }) {
+    setBusy(l.id);
+    try { await call('job_line_done', { p_id: l.id, p_done: true }); await reload(); send('خلصت «' + l.title + '» في ' + j.ref + ' (اتعلّمت خلاص)'); } catch (e) { toast(errText(e), 'bad'); }
+    setBusy('');
+  }
+  const problem = ({ l, j }) => DRAFT && DRAFT('فيه مشكلة في «' + l.title + '» (' + j.ref + '): ');
+  return html`<div class="ai-msg bot boss" dir="auto">
+    <small class="boss-h"><${Icon} name="bell" size=${13} /> المدير · ${L.fmtDateTime(msg.created_at)}</small>
+    <div>${msg.body}</div>
+    ${lines.length > 0 && html`<div class="boss-tasks">${lines.map((x) => html`<div class="boss-task" key=${x.l.id}>
+      <span class=${'grow' + (x.l.done ? ' done' : '')}>${x.l.title}${x.l.problem ? html` <small class="bad">⚠️ ${x.l.problem}</small>` : ''}</span>
+      ${x.l.done ? html`<b class="ok">✓ خلصت</b>` : html`<button class="btn sm green" disabled=${busy || BUSY} onClick=${() => done(x)}>${busy === x.l.id ? '...' : 'خلصت'}</button>
+        <button class="btn sm ghost" onClick=${() => problem(x)}>مشكلة</button>`}</div>`)}</div>`}
+  </div>`;
+}
+
+/* تحليل الشهر: PDF */
+function MonthMsg({ m }) {
+  const rep = m.rep;
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  async function make() { setBusy(true); try { setFile(await monthPdf(rep)); } catch (e) { toast(errText(e), 'bad'); } setBusy(false); }
+  return html`<div class="ai-card yes">
+    <div class="ai-card-h"><${Icon} name="file" size=${18} /><b>مصاريف ${rep.name} · ${egp(rep.total)}</b></div>
+    ${rep.by_car.slice(0, 4).map((g) => html`<div class="ai-kv"><span dir="auto">${g.name}</span><b>${egp(g.total)}</b></div>`)}
+    ${file ? html`<${FileReady} file=${file} text=${'مصاريف ' + rep.name} />`
+      : html`<button class="btn dark" disabled=${busy} onClick=${make}>${busy ? 'بجهّز...' : html`<${Icon} name="file" size=${20} /> التحليل PDF`}</button>`}
+    ${rep.closed && html`<small class="soft">الشهر ده مقفول</small>`}
+  </div>`;
+}
+
 function Msg({ m }) {
-  if (m.kind === 'me') return html`<div class="ai-msg me" dir="auto">${m.text}</div>`;
+  if (m.kind === 'me') return html`<div class="ai-msg me" dir="auto">${m.img && html`<img class="ai-img" src=${m.img} alt="" />`}${m.text}</div>`;
+  if (m.kind === 'boss') return html`<${BossMsg} m=${m} />`;
+  if (m.kind === 'month') return html`<${MonthMsg} m=${m} />`;
   if (m.kind === 'ai') return html`<div class="ai-msg bot" dir="auto">${String(m.text || '').split(/\*\*(.+?)\*\*/g).map((x, i) => (i % 2 ? html`<b>${x}</b>` : x.replace(/^\s*[*-]\s+/gm, '• ')))}</div>`;
   if (m.kind === 'err') return html`<div class="ai-msg err"><${Icon} name="alert" size=${16} /> ${m.text}</div>`;
   if (m.kind === 'wait') return MSGS.some((x) => x.kind === 'confirm' && x.state === 'wait') ? null : html`<div class="ai-msg bot wait"><i></i><i></i><i></i></div>`;
@@ -1012,24 +1181,35 @@ export function AssistantSheet({ close, first }) {
   const end = useRef(null);
   const inp = useRef(null);
   useEffect(() => { if (end.current) end.current.scrollIntoView({ block: 'end', behavior: 'smooth' }); }, [MSGS.length, MSGS[MSGS.length - 1] && MSGS[MSGS.length - 1].state]);
-  useEffect(() => { if (first) send(first); }, []);
-  const go = () => { const x = t; setT(''); send(x); };
+  useEffect(() => { showInbox().then(() => { if (first) send(first); }); }, []);
+  useEffect(() => { DRAFT = (x) => { setT(x); setTimeout(() => inp.current && inp.current.focus(), 50); }; return () => { DRAFT = null; }; }, []);
+  const [img, setImg] = useState(null);
+  const fileRef = useRef(null);
+  async function pickImg(e) {
+    const f = e.target.files && e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try { setImg(await prepReceipt(f)); } catch (er) { toast('الصورة مش راضية تفتح', 'bad'); }
+  }
+  const go = () => { const x = t; const i = img; setT(''); setImg(null); send(x, i); };
   const me = st().data.me;
   return html`<${Sheet} title="المدير" sub="اسأله أو قوله يعمل أي حاجة، عربي أو English" onClose=${close} full
     footer=${html`<div class="ai-foot">
       <div class="ai-quick">${quick().map(([ic, lb, fn]) => html`<button class="chip" onClick=${fn}><${Icon} name=${ic} size=${14} /> ${lb}</button>`)}</div>
+      ${img && html`<div class="ai-pend"><img src=${img.url} alt="" /><span class="grow">صورة جاهزة تتبعت (فاتورة؟)</span><button class="btn sm ghost" onClick=${() => setImg(null)}><${Icon} name="x" size=${16} /></button></div>`}
       <div class="ai-input">
+        <input ref=${fileRef} type="file" accept="image/*" hidden onChange=${pickImg} />
+        <button class="btn ghost att" onClick=${() => fileRef.current && fileRef.current.click()} aria-label="صورة فاتورة"><${Icon} name="camera" size=${21} /></button>
         <textarea ref=${inp} class="input" rows="1" dir="auto" value=${t} placeholder="اكتب أو اسأل أي حاجة..."
           onInput=${(e) => { setT(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
           onKeyDown=${(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } }}></textarea>
-        <button class="btn send" disabled=${BUSY || !t.trim()} onClick=${go} aria-label="ابعت"><${Icon} name="send" size=${21} /></button>
+        <button class="btn send" disabled=${BUSY || (!t.trim() && !img)} onClick=${go} aria-label="ابعت"><${Icon} name="send" size=${21} /></button>
       </div>
     </div>`}>
     ${MSGS.length === 0 && html`<div class="ai-hello">
       <div class="ai-hello-ic"><${Icon} name="spark" size=${30} /></div>
       <b>أهلاً ${me.kind === 'admin' ? '' : me.name}، أنا المدير.</b>
-      <span>أقدر أدوّرلك على أي قطعة، أستلم عربية وأقسّم شغلها على الموظفين، أعمل فواتير PDF، وأسجّل الحركات.</span>
-      <div class="ai-ex">${['فين كيت الزاوية بتاع E36؟', 'إيه العربيات المتأخرة؟', 'مين فاضي من الموظفين؟', canInvoice() ? 'اعمل فاتورة لأحمد فيها تركيب كيت زاوية' : 'عربية كريم الـ E46 داخلة فابريكيشن'].map((x) => html`<button class="chip" onClick=${() => send(x)}>${x}</button>`)}</div>
+      <span>${me.kind === 'admin' ? 'أقدر أدوّرلك على أي قطعة، أستلم عربية وأقسّم شغلها على الموظفين وأبعتلهم، أعمل فواتير PDF، وأحلّلك المصاريف.' : 'قولّي خلصت إيه، أو لو فيه حاجة واقفاك، أو اشتريت حاجة (صوّر الفاتورة 📷).'}</span>
+      <div class="ai-ex">${(me.kind === 'admin' ? ['قسّم شغل الأسبوع', 'إيه العربيات المتأخرة؟', 'صرفنا كام الشهر ده؟', 'تحليل مصاريف الشهر اللي فات'] : ['شغلي النهارده إيه؟', 'خلصت الشغلانة اللي عليا', 'اشتريت حاجة', 'فين كيت الزاوية بتاع E36؟']).map((x) => html`<button class="chip" onClick=${() => send(x)}>${x}</button>`)}</div>
     </div>`}
     <div class="ai-chat">${MSGS.map((m) => html`<${Msg} m=${m} key=${m.id} />`)}<div ref=${end}></div></div>
     ${MSGS.length > 0 && !BUSY && html`<button class="linkbtn" onClick=${() => { HIST = []; MSGS = []; emit(); }}><${Icon} name="undo" size=${14} /> كلام جديد</button>`}

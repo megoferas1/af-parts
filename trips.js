@@ -1,14 +1,14 @@
 /* trips.js — الطلعات: سباق / تمرين / طلعة تانية */
-import { html, useState, Icon, Pill, Empty, Field, Chips, Stepper, Segmented, Sheet, SecTitle, Hero, openSheet, toast, confirmBox, Spinner } from './ui.js?v=20';
-import { call, errText } from './api.js?v=20';
-import { useStore, getStore, reload, ownerText } from './store.js?v=20';
-import * as L from './lib.js?v=20';
-import { ItemSheet, ItemPicker, OldPartFields, Thumb, run, groupBy, startNewItem } from './items.js?v=20';
-import { TemplatesSheet, TemplateForm } from './tools.js?v=20';
-import { ScanSheet } from './qr.js?v=20';
-import { FileReady } from './stickers.js?v=20';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=20';
-import { HeroScan } from './home.js?v=20';
+import { html, useState, Icon, Pill, Empty, Field, Chips, Stepper, Segmented, Sheet, SecTitle, Hero, openSheet, toast, confirmBox, Spinner } from './ui.js?v=21';
+import { call, errText } from './api.js?v=21';
+import { useStore, getStore, reload, ownerText } from './store.js?v=21';
+import * as L from './lib.js?v=21';
+import { ItemSheet, ItemPicker, OldPartFields, Thumb, run, groupBy, startNewItem } from './items.js?v=21';
+import { TemplatesSheet, TemplateForm } from './tools.js?v=21';
+import { ScanSheet } from './qr.js?v=21';
+import { FileReady } from './stickers.js?v=21';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=21';
+import { HeroScan } from './home.js?v=21';
 
 const okOf = (x) => x.qty - x.damaged - x.installed - x.used - x.lost;
 

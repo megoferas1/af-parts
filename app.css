@@ -650,3 +650,17 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 .sugs .chip { min-height: 34px; padding: 0 11px; font-size: 13.5px; }
 .task-main small.who { color: var(--ink2); font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
 .task-main small.who.none { color: var(--faint); font-weight: 600; }
+/* v21: رسايل المدير + صورة الفاتورة */
+.ai-msg.boss { border: 1.5px solid var(--line); background: #fff; }
+.boss-h { display: flex; align-items: center; gap: 5px; color: var(--mute); font-weight: 700; margin-bottom: 4px; }
+.boss-tasks { display: grid; gap: 6px; margin-top: 8px; white-space: normal; }
+.boss-task { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-top: 1px solid var(--line); }
+.boss-task .done { text-decoration: line-through; color: var(--mute); }
+.boss-task .btn.sm { min-height: 34px; padding: 0 12px; }
+.boss-task .ok { color: var(--green, #1a8f4c); font-size: 13.5px; }
+.boss-task small.bad { color: var(--red); display: block; }
+.ai-img { display: block; max-width: 180px; max-height: 220px; border-radius: 12px; margin-bottom: 6px; }
+.ai-pend { display: flex; align-items: center; gap: 10px; padding: 6px 4px 8px; font-size: 14px; color: var(--mute); }
+.ai-pend img { width: 46px; height: 46px; object-fit: cover; border-radius: 10px; }
+.ai-input .att { width: 46px; height: 48px; flex: none; padding: 0; border-radius: 15px; }
+.aibar .badge.red { min-width: 26px; height: 26px; border-radius: 13px; background: var(--red); color: #fff; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; padding: 0 7px; font-size: 14px; }
