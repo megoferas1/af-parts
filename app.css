@@ -677,3 +677,29 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 .catbox { background: var(--card, #fff); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; box-shadow: 0 1px 0 rgba(0,0,0,.04); }
 .catbox small { color: var(--mute); }
 .catbox b { font-size: 17px; }
+/* v26: صفحة الشغل البسيطة */
+.jhead { display: flex; flex-direction: column; gap: 4px; }
+.jhead .linkbtn { padding: 2px 4px; font-size: 13px; }
+.jtitle { font-size: 17px; font-weight: 800; }
+.jsub { color: var(--mute); font-size: 13px; line-height: 1.6; }
+.jsub a { color: var(--red); text-decoration: none; }
+.step, .pline { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.step .tick { width: 26px; height: 26px; border-radius: 8px; }
+.step-t, .pline-t { border: 0; background: none; padding: 0; text-align: start; align-items: flex-start; display: flex; flex-direction: column; gap: 1px; color: var(--ink); min-width: 0; }
+.step-t span, .pline-t span { font-size: 15px; font-weight: 700; }
+.step-t span.done { color: var(--mute); text-decoration: line-through; }
+.step-t small, .pline-t small { font-size: 12px; color: var(--mute); font-weight: 600; }
+.step-t small.now { color: var(--green); font-weight: 800; }
+.step-t small.none { color: var(--faint); }
+.step.now { background: var(--green-soft); border-radius: 10px; padding-inline: 8px; }
+.tick.sm { width: 22px; height: 22px; border-radius: 7px; }
+.pline.todo .pline-t span { color: var(--ink2); }
+.pbox { width: 78px; flex: none; height: 36px; border: 1.5px solid var(--line); border-radius: 10px; text-align: center; font-weight: 800; font-size: 14.5px; background: #fff; color: var(--ink); }
+.pbox:focus { outline: none; border-color: var(--ink); }
+.pbox.big { width: 84px; height: 44px; }
+.pnum { font-size: 14px; }
+.addlink { background: none; border: 0; color: var(--red); font-weight: 800; font-size: 13px; padding: 8px 2px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.addlink.disabled { opacity: .5; pointer-events: none; }
+.addlinks { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; }
+.addrow.sm { padding: 8px 0 2px; align-items: center; }
+.addrow.sm .btn { width: 44px; min-height: 44px; }

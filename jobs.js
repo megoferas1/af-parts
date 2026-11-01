@@ -212,6 +212,7 @@ export function JobSheet({ id, close }) {
   const [parts, setParts] = useState(null);
   const [busy, setBusy] = useState('');
   const [nt, setNt] = useState('');
+  const [adding, setAdding] = useState('');
   const inList = idx.jobs.get(id);
   const j = inList || extra;
   useEffect(() => {
@@ -259,7 +260,7 @@ export function JobSheet({ id, close }) {
     if (!t) return toast('اكتب الشغلانة', 'bad');
     setBusy('task');
     const r = await run(() => call('job_line_add', { p_job: j.id, p: { kind: 'task', title: t } }));
-    if (r.ok) setNt('');
+    if (r.ok) { setNt(''); setAdding(''); }
     setBusy('');
   }
   const onPhoto = (stage) => async (e) => {
@@ -299,78 +300,68 @@ export function JobSheet({ id, close }) {
         : html`<button class="btn ghost sm" onClick=${() => openSheet(JobForm, { id: j.id })}><${Icon} name="edit" size=${19} /> تعديل</button>`}
     </div>`}>
 
-    <div class="row gap8 wrap"><${Pill} tone=${st.tone} icon=${st.icon}>${stLabel(j, st)}<//>
-      ${j.product_id ? html`<${Pill} tone="dark" icon="layers">إنتاج<//>` : JOB_KIND[j.kind] && html`<${Pill} tone="dark" icon=${j.kind === 'fab' ? 'flame' : 'wrench'}>${JOB_KIND[j.kind].label}<//>`}
-      ${late && html`<${Pill} tone="red" icon="alert">متأخرة<//>`}
-      ${j.invoice && html`<${Pill} tone="green" icon="file">${j.invoice.ref}<//>`}</div>
-    ${next && html`<button class=${'btn bigbtn ' + (next[0] === 'ready' ? 'green' : next[0] === 'delivered' ? 'dark' : '')} disabled=${busy === 'st'} onClick=${() => setStatus(next[0])}>
-      <${Icon} name=${next[2]} size=${22} /> ${busy === 'st' ? 'لحظة...' : next[1]}</button>`}
-    ${j.status === 'working' && html`<button class="btn ghost sm" disabled=${busy === 'st'} onClick=${() => setStatus('waiting')}><${Icon} name="timer" size=${18} /> مستنية قطع</button>`}
-    <button class="linkbtn" onClick=${() => openSheet(StatusSheet, { cur: j.status, onPick: setStatus })}><${Icon} name="swap" size=${15} /> غيّر الحالة</button>
-
-    ${j.product_id && html`<button class=${'btn ' + ((j.made_qty || 0) < (j.prod_qty || 0) ? 'green' : 'ghost sm')} onClick=${() => openSheet(ProduceSheet, { jobId: j.id })}><${Icon} name="layers" size=${20} /> ${(j.made_qty || 0) < (j.prod_qty || 0) ? 'قطع خلصت' : 'سجّل قطع زيادة'} (اتعمل ${j.made_qty || 0} من ${j.prod_qty || '?'})</button>`}
-    <div class="card soft-card jinfo">
-      <span>المطلوب</span><b dir="auto">${j.title}</b>
-      ${j.product_id && html`<span>المنتج</span><b dir="auto">${(idx.items.get(j.product_id) || {}).name || '—'} × ${j.prod_qty || '?'}</b>`}
-      ${d && html`<span>صاحبها</span><b>${d.name}${d.phone && html` · <a class="ltr-t" href=${'tel:' + d.phone}>${d.phone}</a>`}</b>`}
-      ${car && car.plate && html`<span>اللوحة</span><b>${car.plate}</b>`}
-      <span>المسؤول</span><b>${staff ? staff.name : '—'}</b>
-      <span>استلمناها</span><b>${L.fmtDateTime(j.created_at)}${j.created_by ? ' · ' + j.created_by : ''}</b>
-      ${j.due_date && html`<span>التسليم</span><b class=${late ? 'red-t' : ''}>${L.fmtDate(j.due_date)}</b>`}
-      ${j.delivered_at && html`<span>اتسلمت</span><b>${L.fmtDateTime(j.delivered_at)}</b>`}
-      ${j.note && html`<span>ملاحظات</span><b dir="auto">${j.note}</b>`}
+    <div class="jhead">
+      <div class="row gap8 wrap"><${Pill} tone=${st.tone} icon=${st.icon}>${stLabel(j, st)}<//>
+        ${j.product_id ? html`<${Pill} tone="dark" icon="layers">إنتاج<//>` : JOB_KIND[j.kind] && html`<${Pill} tone="dark" icon=${j.kind === 'fab' ? 'flame' : 'wrench'}>${JOB_KIND[j.kind].label}<//>`}
+        ${late && html`<${Pill} tone="red" icon="alert">متأخرة<//>`}
+        <button class="linkbtn" onClick=${() => openSheet(StatusSheet, { cur: j.status, onPick: setStatus })}><${Icon} name="swap" size=${14} /> الحالة</button></div>
+      <b class="jtitle" dir="auto">${j.title}${j.product_id ? ' × ' + (j.prod_qty || '?') : ''}</b>
+      <small class="jsub">${[d && d.name, d && d.phone && html`<a class="ltr-t" href=${'tel:' + d.phone}>${d.phone}</a>`, car && car.plate, staff && 'المسؤول: ' + staff.name,
+        j.due_date && html`<span class=${late ? 'red-t' : ''}>التسليم ${L.fmtDate(j.due_date)}</span>`].filter(Boolean).map((x, i) => html`${i ? ' · ' : ''}${x}`)}</small>
+      ${j.note && html`<small class="jsub" dir="auto">📝 ${j.note}</small>`}
+      ${canInvoice() && html`<button class="linkbtn" onClick=${() => openSheet(JobForm, { id: j.id })}><${Icon} name="edit" size=${14} /> تعديل البيانات</button>`}
     </div>
-    ${canInvoice() && html`<button class="linkbtn" onClick=${() => openSheet(JobForm, { id: j.id })}><${Icon} name="edit" size=${15} /> تعديل بيانات أمر الشغل</button>`}
+    ${next && html`<button class=${'btn sm ' + (next[0] === 'ready' ? 'green' : next[0] === 'delivered' ? 'dark' : '')} disabled=${busy === 'st'} onClick=${() => setStatus(next[0])}>
+      <${Icon} name=${next[2]} size=${19} /> ${busy === 'st' ? 'لحظة...' : next[1]}</button>`}
+    ${j.product_id && html`<button class="btn ghost sm" onClick=${() => openSheet(ProduceSheet, { jobId: j.id })}><${Icon} name="layers" size=${18} /> قطع خلصت (اتعمل ${j.made_qty || 0} من ${j.prod_qty || '?'})</button>`}
 
-    <${SecTitle} right=${tasks.length ? html`<span class="num">${done}/${tasks.length}</span>` : ''}>الشغل المطلوب<//>
-    <div class="card tight">
-      ${tasks.length > 0 && html`<span class="bar big"><i style=${'width:' + Math.round((done / tasks.length) * 100) + '%'}></i></span>`}
-      ${tasks.map((l, i) => html`<div class=${'task' + (nextStep && l.id === nextStep.id ? ' next' : '') + (l.waiting && !l.done ? ' wait' : '')} key=${l.id}>
-        <button class=${'tick ' + (l.done ? 'on' : '')} onClick=${() => toggle(l)} aria-label=${l.done ? 'لسه' : 'خلصت'}>${l.done ? html`<${Icon} name="check" size=${18} stroke=${3} />` : html`<span class="stepno">${i + 1}</span>`}</button>
-        <button class="task-main grow" onClick=${() => openSheet(LineForm, { line: l })}>
-          <b class=${l.done ? 'done' : ''} dir="auto">${l.errand ? '🚚 ' : ''}${l.title}</b>
-          ${l.note && !l.done && html`<small dir="auto">${l.note}</small>`}
-          ${l.done ? html`<small>✓ ${L.bidi(l.done_by, L.fmtDateTime(l.done_at))}</small>`
-            : html`<small class=${l.staff_id ? 'who' : 'who none'}><${Icon} name="user" size=${12} /> ${(l.staff_id && (data.staff.find((s) => s.id === l.staff_id) || {}).name) || 'محدش لسه — دوس ووزّعها'}${l.waiting ? ' · مستنية اللي قبلها' : l.plan_date ? ' · ' + L.fmtDate(l.plan_date) : ''}${nextStep && l.id === nextStep.id ? ' · ← دي الجاية' : ''}</small>`}</button>
-      </div>`)}
-      <div class="addrow">
-        <input class="input" dir="auto" placeholder="ضيف شغلانة..." value=${nt} onInput=${(e) => setNt(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter') addTask(); }} />
-        <button class="btn sm dark" disabled=${busy === 'task'} onClick=${() => addTask()}><${Icon} name="plus" size=${20} /></button>
-      </div>
-      ${data.price_items.some((x) => x.kind === 'labor') && html`<button class="linkbtn" onClick=${() => openSheet(ListPick, { job: j, kind: 'labor' })}><${Icon} name="list" size=${15} /> من ليستة المصنعيات</button>`}
+    <${SecTitle} right=${tasks.length ? html`<span class="num">${done} من ${tasks.length}</span>` : ''}>الخطوات<//>
+    <div class="card tight jsteps">
+      ${tasks.length === 0 && html`<div class="hint">مفيش خطوات لسه. دوس «+ إضافة» أو قول للمدير.</div>`}
+      ${tasks.map((l, i) => {
+        const who = l.staff_id && (data.staff.find((s) => s.id === l.staff_id) || {}).name;
+        const isNext = nextStep && l.id === nextStep.id;
+        const sub = l.done ? '✓ ' + (l.done_by || 'خلصت') + (l.done_at ? ' · ' + L.fmtDate(l.done_at) : '')
+          : isNext ? (who ? 'الشغل عند ' + who + ' دلوقتي' : 'دي الجاية — محدش متحدد عليها')
+          : (who ? 'بعد كده: عند ' + who : 'محدش متحدد عليها');
+        return html`<div class=${'step' + (isNext ? ' now' : '') + (l.done ? ' ok' : '')} key=${l.id}>
+          <button class=${'tick ' + (l.done ? 'on' : '')} onClick=${() => toggle(l)} aria-label=${l.done ? 'لسه' : 'خلصت'}>${l.done && html`<${Icon} name="check" size=${17} stroke=${3} />`}</button>
+          <button class="step-t grow" onClick=${() => openSheet(LineForm, { line: l })}>
+            <span class=${l.done ? 'done' : ''} dir="auto">${i + 1}. ${l.errand ? '🚚 ' : ''}${l.title}</span>
+            <small class=${isNext ? 'now' : l.done ? '' : (who ? '' : 'none')} dir="auto">${sub}${l.note && !l.done ? ' · ' + l.note : ''}</small></button>
+        </div>`;
+      })}
+      ${adding === 'task' ? html`<div class="addrow sm">
+          <input class="input" dir="auto" placeholder="الخطوة..." value=${nt} autoFocus onInput=${(e) => setNt(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Enter') addTask(); }} />
+          <button class="btn sm dark" disabled=${busy === 'task'} onClick=${() => addTask()}><${Icon} name="check" size=${18} /></button></div>`
+        : html`<button class="addlink" onClick=${() => setAdding('task')}><${Icon} name="plus" size=${14} /> إضافة</button>`}
     </div>
 
     <${JobPurchases} job=${j} />
 
-    <${SecTitle}>الخامات اللي اتصرفت<//>
-    ${mats.length > 0 && html`<div class="card tight">${mats.map((l) => html`<button class="lrow" key=${l.id} onClick=${() => openSheet(LineForm, { line: l })}>
-      <span class="grow"><b dir="auto">${l.title}</b></span><b class="task-q"><span class="num">${fmtH(Number(l.qty))}</span>${l.unit ? ' ' + l.unit : ''}</b></button>`)}</div>`}
-    <button class="btn ghost sm" onClick=${() => openSheet(ListPick, { job: j, kind: 'material' })}><${Icon} name="plus" size=${18} /> خامة اتصرفت (سلك لحام، أرجون، مواسير...)</button>
-
-    <${SecTitle}>القطع اللي اتركبت<//>
-    ${parts === null ? html`<${Spinner} />` : installs.length === 0 && removed.length === 0 ? html`<div class="hint">لما تركّب قطعة على العربية دي وهي في الجراش، هتظهر هنا لوحدها.</div>`
-      : html`<div class="card tight">
-        ${installs.map((m) => html`<div class="trow" key=${m.id}><div class="grow"><div class="irow-title">${m.name}${m.size && html`<span class="size">${m.size}</span>`}</div>
-          <div class="irow-sub">${m.code && html`<span class="code">${m.code}</span>`}<span>${m.garage ? 'من قطع الجراش' : 'بتاعة السواق'}</span><span>${L.fmtDateTime(m.created_at)}</span></div></div>
-          <b class="num">${m.amount}</b></div>`)}
-        ${removed.map((m) => html`<div class="trow faded" key=${m.id}><div class="grow"><div class="irow-title">طلعت: ${m.name}</div><div class="irow-sub"><span>${m.note}</span></div></div><b class="num">${m.amount}</b></div>`)}
-      </div>`}
-    ${car && isOpenJob(j) && html`<button class="btn ghost sm" onClick=${() => openSheet(PartPick, { job: j })}><${Icon} name="wrench" size=${18} /> ركّب قطعة على العربية دي</button>`}
-
-    <${SecTitle} right=${(j.hours || []).length ? html`<span class="num">${fmtH(hoursOf(j))} ساعة</span>` : ''}>ساعات الشغل<//>
-    ${(j.hours || []).length > 0 && html`<div class="card tight">${j.hours.map((h) => html`<div class="trow" key=${h.id}>
-      <div class="grow"><div class="irow-title">${h.staff_name || '—'}</div><div class="irow-sub"><span>${L.fmtDate(h.work_date)}</span>${h.note && html`<span dir="auto">${h.note}</span>`}</div></div>
-      <b class="num">${fmtH(Number(h.hours))} س</b>
-      <button class="iconbtn light" aria-label="شيل" onClick=${async () => { if (await confirmBox({ title: 'شيل الساعات دي؟', ok: 'شيل', danger: true })) run(() => call('job_hours_delete', { p_id: h.id }), 'اتشالت'); }}><${Icon} name="x" size=${16} /></button>
-    </div>`)}</div>`}
-    <button class="btn ghost sm" onClick=${() => openSheet(HoursForm, { job: j })}><${Icon} name="timer" size=${18} /> سجّل ساعات شغل</button>
+    <${SecTitle} right=${(j.hours || []).length ? html`<span class="num">${fmtH(hoursOf(j))} ساعة</span>` : ''}>الخامات والقطع والساعات<//>
+    <div class="card tight">
+      ${mats.map((l) => html`<button class="lrow" key=${l.id} onClick=${() => openSheet(LineForm, { line: l })}>
+        <span class="grow"><b dir="auto">${l.title}</b><small>خامة اتصرفت</small></span><b class="task-q"><span class="num">${fmtH(Number(l.qty))}</span>${l.unit ? ' ' + l.unit : ''}</b></button>`)}
+      ${installs.map((m) => html`<div class="lrow" key=${m.id}><span class="grow"><b>${m.name}${m.size && html` <span class="size">${m.size}</span>`}</b>
+        <small>${m.code ? m.code + ' · ' : ''}اتركبت · ${m.garage ? 'من قطع الجراش' : 'بتاعة السواق'}</small></span><b class="num">${m.amount}</b></div>`)}
+      ${removed.map((m) => html`<div class="lrow faded" key=${m.id}><span class="grow"><b>طلعت: ${m.name}</b><small>${m.note}</small></span><b class="num">${m.amount}</b></div>`)}
+      ${(j.hours || []).map((h) => html`<div class="lrow" key=${h.id}><span class="grow"><b>${h.staff_name || '—'}</b><small>ساعات · ${L.fmtDate(h.work_date)}${h.note ? ' · ' + h.note : ''}</small></span>
+        <b class="num">${fmtH(Number(h.hours))} س</b>
+        <button class="iconbtn light" aria-label="شيل" onClick=${async () => { if (await confirmBox({ title: 'شيل الساعات دي؟', ok: 'شيل', danger: true })) run(() => call('job_hours_delete', { p_id: h.id }), 'اتشالت'); }}><${Icon} name="x" size=${16} /></button></div>`)}
+      <div class="addlinks">
+        <button class="addlink" onClick=${() => openSheet(ListPick, { job: j, kind: 'material' })}><${Icon} name="plus" size=${14} /> خامة</button>
+        ${car && isOpenJob(j) && html`<button class="addlink" onClick=${() => openSheet(PartPick, { job: j })}><${Icon} name="plus" size=${14} /> قطعة اتركبت</button>`}
+        <button class="addlink" onClick=${() => openSheet(HoursForm, { job: j })}><${Icon} name="plus" size=${14} /> ساعات</button>
+      </div>
+    </div>
 
     <${SecTitle}>الصور (${phList.length})<//>
-    <div class="photobtns">${Object.entries(STAGE).map(([k, lb]) => html`<label class=${'btn ghost sm ' + (busy === 'ph-' + k ? 'disabled' : '')} key=${k}>
-      ${busy === 'ph-' + k ? html`<div class="spin sm"></div>` : html`<${Icon} name="camera" size=${18} />`} ${lb}
-      <input type="file" accept="image/*" multiple hidden onChange=${onPhoto(k)} /></label>`)}</div>
     ${phList.length > 0 && html`<div class="pgrid">${phList.map((ph) => html`<button key=${ph.id} onClick=${() => openSheet(PhotoView, { ph, job: j })}>
       <img src=${photoUrl(ph.path)} loading="lazy" alt="" /><i>${STAGE[ph.stage] || ''}</i></button>`)}</div>`}
+    <div class="addlinks">${Object.entries(STAGE).map(([k, lb]) => html`<label class=${'addlink ' + (busy === 'ph-' + k ? 'disabled' : '')} key=${k}>
+      ${busy === 'ph-' + k ? html`<div class="spin sm"></div>` : html`<${Icon} name="camera" size=${14} />`} ${lb}
+      <input type="file" accept="image/*" multiple hidden onChange=${onPhoto(k)} /></label>`)}</div>
 
     ${canInvoice() && j.invoice && j.invoice.id && html`<button class="linkbtn" onClick=${makeInvoice}><${Icon} name="layers" size=${15} /> فاتورة تانية من أمر الشغل ده</button>`}
     ${!isOpenJob(j) && html`<button class="linkbtn" onClick=${() => setStatus('working')}><${Icon} name="undo" size=${15} /> رجّعها للشغل</button>`}

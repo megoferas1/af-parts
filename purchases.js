@@ -1,5 +1,5 @@
 /* purchases.js — المشتريات: جوه كل شغلانة (بأنواعها وفاتورتها)، وصفحة كل المشتريات (مسح وتعديل للإدارة) */
-import { html, useState, useEffect, Icon, Pill, Empty, Spinner, Field, Chips, Sheet, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=26';
+import { html, useState, useEffect, Icon, Pill, Empty, Spinner, Field, Chips, Sheet, SecTitle, openSheet, toast, confirmBox, NumInput, parseNum } from './ui.js?v=26';
 import { call, errText, sb } from './api.js?v=26';
 import { useStore, getStore, isAdmin, reload } from './store.js?v=26';
 import * as L from './lib.js?v=26';
@@ -48,32 +48,78 @@ export async function jobPurchasesPdf(j, list) {
   return fileFrom(blob, safeName('مشتريات ' + j.ref + ' ' + jobName(j, idx)) + '.pdf');
 }
 
-/* جوه صفحة الشغلانة: المشتريات بأنواعها + «لسه هنشتري» + الفاتورة */
+/* خانة سعر صغيرة: بتتحفظ لما تخرج منها أو تدوس Enter */
+function PriceBox({ value, onSave, disabled, placeholder }) {
+  const [t, setT] = useState(value ? String(Math.round(Number(value) * 100) / 100) : '');
+  useEffect(() => { setT(value ? String(Math.round(Number(value) * 100) / 100) : ''); }, [value]);
+  const commit = () => { const n = parseNum(t);
+    if (t === '' || !(n >= 0) || n === Number(value || 0)) return; onSave(n); };
+  return html`<input class="pbox" inputmode="decimal" dir="ltr" placeholder=${placeholder || 'السعر'} value=${t} disabled=${disabled}
+    onInput=${(e) => setT(e.target.value.replace(/[^0-9٠-٩.,٫]/g, ''))} onBlur=${commit} onKeyDown=${(e) => { if (e.key === 'Enter') e.target.blur(); }} />`;
+}
+
+/* جوه صفحة الشغلانة: كل بند سطر واحد (اللي اتشرى بسعره، واللي لسه)، وزرار إضافة صغير، والفاتورة */
 export function JobPurchases({ job: j, onCount }) {
   const { data } = useStore();
   const [list, setList] = useState(null);
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [add, setAdd] = useState(null);
   const load = () => call('job_expenses', { p_job: j.id }).then((r) => { setList(r || []); onCount && onCount(r || []); }).catch(() => setList([]));
   useEffect(() => { load(); }, [j.id, j.updated_at, data]);
-  const buy = (j.lines || []).filter((l) => l.kind === 'buy');
-  const left = buy.filter((l) => !l.done);
+  const left = (j.lines || []).filter((l) => l.kind === 'buy' && !l.done);
   const total = list ? Math.round(L.sum(list, (e) => Number(e.price) || 0)) : 0;
+  const admin = isAdmin();
   async function pdf() { setBusy(true); try { setFile(await jobPurchasesPdf(j, list || [])); } catch (e) { toast(errText(e), 'bad'); } setBusy(false); }
-  async function tickBuy(l) { try { await call('job_line_done', { p_id: l.id, p_done: !l.done }); reload().catch(() => {}); } catch (e) { toast(errText(e), 'bad'); } }
+  async function bought(l, price) {   // اتشرى: يتسجل بسعره ويتعلّم عليه
+    try { await call('expense_add', { p: { item: l.title, qty: Number(l.qty) || 1, price, job_id: j.id } });
+      await call('job_line_done', { p_id: l.id, p_done: true }).catch(() => {}); toast('اتسجل ✓'); await reload(); load(); } catch (e) { toast(errText(e), 'bad'); }
+  }
+  async function setPrice(e, price) {
+    try { await call('expense_update', { p_id: e.id, p: { item: e.item, qty: Number(e.qty), price, shop: e.shop || '', cat: catOf(e), size: e.size || '', job_id: j.id } }); toast('السعر اتعدّل'); load(); } catch (er) { toast(errText(er), 'bad'); }
+  }
+  async function dropBuy(l) {
+    if (!(await confirmBox({ title: 'شيل «' + l.title + '»؟', ok: 'شيل', danger: true }))) return;
+    try { await call('job_line_delete', { p_id: l.id }); await reload(); } catch (e) { toast(errText(e), 'bad'); }
+  }
+  async function addLine() {
+    const item = (add.item || '').trim();
+    if (!item) return toast('اكتب البند', 'bad');
+    setBusy(true);
+    try {
+      if (add.price > 0) await call('expense_add', { p: { item, qty: 1, price: add.price, job_id: j.id } });
+      else await call('job_steps_add', { p_job: j.id, p_steps: [], p_buy: [{ title: item }], p_remove: [] });
+      setAdd(null); await reload(); load();
+    } catch (e) { toast(errText(e), 'bad'); }
+    setBusy(false);
+  }
   return html`
-    ${buy.length > 0 && html`<${SecTitle} right=${html`<span class="num">${left.length}</span>`}>لسه هنشتري<//>
-      <div class="card tight">${buy.map((l) => html`<div class="task" key=${l.id}>
-        <button class=${'tick ' + (l.done ? 'on' : '')} onClick=${() => tickBuy(l)} aria-label="اتشرت">${l.done && html`<${Icon} name="check" size=${18} stroke=${3} />`}</button>
-        <div class="task-main grow"><b class=${l.done ? 'done' : ''} dir="auto">${l.title}${Number(l.qty) !== 1 ? ' × ' + Number(l.qty) + (l.unit ? ' ' + l.unit : '') : ''}</b>
-          ${l.done ? html`<small>✓ اتشرت ${L.bidi(l.done_by, L.fmtDate(l.done_at))}</small>` : l.note ? html`<small dir="auto">${l.note}</small>` : ''}</div></div>`)}</div>`}
-
     <${SecTitle} right=${list && list.length ? html`<b class="num">${egp(total)}</b>` : ''}>المشتريات<//>
-    ${list === null ? html`<${Spinner} />` : list.length === 0 ? html`<div class="hint">قول للمدير «اشترينا كذا بكام لـ${j.ref}» وهتظهر هنا لوحدها.</div>` : html`
-      <div class="catgrid">${byCat(list).map((c) => html`<div class="catbox" key=${c.name}><small>${c.name}</small><b>${egp(c.total)}</b></div>`)}</div>
-      <div class="card tight">${list.map((e) => html`<${ExpRow} e=${e} key=${e.id} onChanged=${load} />`)}</div>
-      ${file ? html`<${FileReady} file=${file} text=${'مشتريات ' + j.ref} />`
-        : html`<button class="btn dark sm" disabled=${busy} onClick=${pdf}><${Icon} name="file" size=${18} /> ${busy ? 'بجهّز...' : 'فاتورة المشتريات PDF'}</button>`}`}`;
+    <div class="card tight">
+      ${list === null ? html`<${Spinner} />` : ''}
+      ${(list || []).map((e) => html`<div class="pline" key=${e.id}>
+        <span class="tick on sm"><${Icon} name="check" size=${14} stroke=${3} /></span>
+        <button class="pline-t grow" onClick=${() => admin && openSheet(ExpenseForm, { e, onChanged: load })}>
+          <span dir="auto">${e.item}${Number(e.qty) !== 1 ? ' × ' + Number(e.qty) : ''}${e.size ? ' (' + e.size + ')' : ''}</span>
+          <small dir="auto">${[e.shop, e.staff, L.fmtDate(e.date)].filter(Boolean).join(' · ')}${e.receipt ? ' · 📷' : ''}</small></button>
+        ${admin ? html`<${PriceBox} value=${e.price} onSave=${(n) => setPrice(e, n)} />` : html`<b class="num pnum">${egp(e.price)}</b>`}
+      </div>`)}
+      ${left.map((l) => html`<div class="pline todo" key=${l.id}>
+        <span class="tick sm"></span>
+        <button class="pline-t grow" onClick=${() => admin && dropBuy(l)}><span dir="auto">${l.title}${Number(l.qty) !== 1 ? ' × ' + Number(l.qty) + (l.unit ? ' ' + l.unit : '') : ''}</span>
+          <small>لسه هنشتريها — اكتب السعر لما تتشرى</small></button>
+        <${PriceBox} value=${0} onSave=${(n) => bought(l, n)} />
+      </div>`)}
+      ${list && list.length === 0 && left.length === 0 && html`<div class="hint">مفيش مشتريات لسه.</div>`}
+      ${add ? html`<div class="addrow sm">
+          <input class="input" dir="auto" placeholder="البند (مثلاً: مسامير 14)" value=${add.item} autoFocus onInput=${(e) => setAdd({ ...add, item: e.target.value })} />
+          <input class="pbox big" inputmode="decimal" dir="ltr" placeholder="السعر" value=${add.p || ''} onInput=${(e) => { const t = e.target.value.replace(/[^0-9.]/g, ''); setAdd({ ...add, p: t, price: Number(t) || 0 }); }} />
+          <button class="btn sm dark" disabled=${busy} onClick=${addLine}><${Icon} name="check" size=${18} /></button></div>
+          <small class="soft">من غير سعر = لسه هنشتريها</small>`
+        : html`<div class="addlinks"><button class="addlink" onClick=${() => setAdd({ item: '', price: 0 })}><${Icon} name="plus" size=${14} /> إضافة</button>
+          ${list && list.length > 0 && (file ? html`<${FileReady} file=${file} text=${'مشتريات ' + j.ref} />`
+            : html`<button class="addlink" disabled=${busy} onClick=${pdf}><${Icon} name="file" size=${14} /> ${busy ? 'بجهّز...' : 'فاتورة المشتريات PDF'}</button>`)}</div>`}
+    </div>`;
 }
 
 /* سطر مشتريات: الإدارة تدوس عليه تعدّل أو تمسح */

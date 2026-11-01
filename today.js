@@ -28,20 +28,40 @@ function TaskRow({ t, showWho, staff }) {
   </div>`;
 }
 
+function MyStep({ l, n, of, wait, j }) {
+  const [busy, setBusy] = useState(false);
+  async function done() {
+    setBusy(true);
+    const r = await run(() => call('job_line_done', { p_id: l.id, p_done: true }), 'برافو ✓');
+    if (r.ok) import('./assistant.js?v=26').then((m) => m.turnNotify(j.id)).catch(() => {});
+    setBusy(false);
+  }
+  return html`<div class=${'step' + (wait ? '' : ' now')}>
+    <button class="tick" disabled=${busy} onClick=${done} aria-label="خلصت"></button>
+    <div class="step-t grow"><span dir="auto">${n}. ${l.errand ? '🚚 ' : ''}${l.title}</span>
+      <small class=${wait ? '' : 'now'} dir="auto">${wait ? '⏳ ' + wait : 'عليك دلوقتي'}${l.note ? ' · ' + l.note : ''}</small></div>
+  </div>`;
+}
+
 export function TodaySheet({ close }) {
   const { data } = useStore();
   const me = data.me || {};
   const today = L.todayStr();
   const all = openTasks(data);
   if (me.kind !== 'admin') {
-    const mine = all.filter((t) => t.staff_id === me.id);
-    const now = mine.filter((t) => !t.done && (!t.plan_date || t.plan_date <= today));
-    const later = mine.filter((t) => !t.done && t.plan_date && t.plan_date > today).sort((a, b) => (a.plan_date < b.plan_date ? -1 : 1));
-    const doneToday = mine.filter((t) => t.done && t.done_at && L.ymd(new Date(t.done_at)) === today);
-    return html`<${Sheet} title="شغلي" sub=${'دوس على المربع لما تخلص الشغلانة'} onClose=${close}>
-      ${now.length === 0 && later.length === 0 ? html`<${Empty} icon="check" text="مفيش شغل عليك دلوقتي 👌" />` : ''}
-      ${now.length > 0 && html`<div class="sec-title"><span class="grow">النهارده</span><${Pill} tone="red">${now.length}<//></div><div class="card tight">${now.map((t) => html`<${TaskRow} t=${t} key=${t.id} staff=${data.staff} />`)}</div>`}
-      ${later.length > 0 && html`<div class="sec-title"><span class="grow">الأيام الجاية</span></div><div class="card tight">${later.map((t) => html`<div key=${t.id}><small class="soft">${dayName(t.plan_date)}</small><${TaskRow} t=${t} staff=${data.staff} /></div>`)}</div>`}
+    // كل شغلانة لوحدها، وخطواتي فيها بالترتيب: اللي عليا دلوقتي، واللي مستنية حد قبلي
+    const jobs = data.jobs.filter(isOpenJob).map((j) => {
+      const steps = (j.lines || []).filter((l) => l.kind === 'task').sort((a, b) => (a.sort || 0) - (b.sort || 0));
+      const mine = steps.map((l, i) => ({ l, i, prev: steps.slice(0, i).reverse().find((x) => !x.done) })).filter((x) => x.l.staff_id === me.id && !x.l.done);
+      return { j, steps, mine, car: (data.cars.find((c) => c.id === j.car_id) || {}).name || j.title || j.ref };
+    }).filter((x) => x.mine.length);
+    const nm = (id) => (data.staff.find((s) => s.id === id) || {}).name || 'حد';
+    const doneToday = all.filter((t) => t.staff_id === me.id && t.done && t.done_at && L.ymd(new Date(t.done_at)) === today);
+    return html`<${Sheet} title="شغلي" sub="بالترتيب — دوس على المربع لما تخلص" onClose=${close}>
+      ${jobs.length === 0 && html`<${Empty} icon="check" text="مفيش شغل عليك دلوقتي 👌" />`}
+      ${jobs.map(({ j, steps, mine, car }) => html`<div key=${j.id}><div class="sec-title"><span class="grow">${car}</span><small class="soft">${j.ref}</small></div>
+        <div class="card tight jsteps">${mine.map(({ l, i, prev }) => html`<${MyStep} key=${l.id} l=${l} n=${i + 1} of=${steps.length}
+          wait=${prev && (prev.staff_id === me.id ? 'بعد «' + prev.title + '»' : (prev.staff_id ? 'مستنية ' + nm(prev.staff_id) + ' يخلص «' + prev.title + '»' : 'مستنية «' + prev.title + '» تخلص'))} j=${j} />`)}</div></div>`)}
       ${doneToday.length > 0 && html`<div class="sec-title"><span class="grow">خلصت النهارده</span><${Pill} tone="green">${doneToday.length}<//></div><div class="card tight">${doneToday.map((t) => html`<${TaskRow} t=${t} key=${t.id} staff=${data.staff} />`)}</div>`}
     <//>`;
   }
