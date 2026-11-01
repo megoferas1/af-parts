@@ -1,19 +1,19 @@
 /* home.js — الرئيسية + السكان العام + البحث */
-import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=22';
-import { call, errText } from './api.js?v=22';
-import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=22';
-import * as L from './lib.js?v=22';
-import { ItemRow, ItemSheet, startNewItem } from './items.js?v=22';
-import { ScanSheet } from './qr.js?v=22';
-import { UnitSheet } from './units.js?v=22';
-import { TripCard } from './trips.js?v=22';
-import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=22';
-import { BlankStickersSheet } from './stickers.js?v=22';
-import { LogSheet } from './log.js?v=22';
-import { AdminSheet } from './admin.js?v=22';
-import { isOpenJob, isLate } from './jobs.js?v=22';
-import { openAssistant, useInbox } from './assistant.js?v=22';
-import { TodaySheet, PushCard, openTasks } from './today.js?v=22';
+import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=23';
+import { call, errText } from './api.js?v=23';
+import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=23';
+import * as L from './lib.js?v=23';
+import { ItemRow, ItemSheet, startNewItem } from './items.js?v=23';
+import { ScanSheet } from './qr.js?v=23';
+import { UnitSheet } from './units.js?v=23';
+import { TripCard } from './trips.js?v=23';
+import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=23';
+import { BlankStickersSheet } from './stickers.js?v=23';
+import { LogSheet } from './log.js?v=23';
+import { AdminSheet } from './admin.js?v=23';
+import { isOpenJob, isLate } from './jobs.js?v=23';
+import { openAssistant, useInbox } from './assistant.js?v=23';
+import { TodaySheet, PushCard, openTasks } from './today.js?v=23';
 
 /* السكان العام: يفتح الحاجة، أو يسجّل استيكر فاضي */
 export function scanOpen() {
@@ -59,6 +59,7 @@ export function HomeTab({ onGo, onLogout }) {
     const mine = all.filter((x) => x.staff_id === (data.me || {}).id).length;
     return mine ? `عليك ${mine} شغلانة` : 'مفيش شغل عليك دلوقتي';
   })();
+  const jProd = jobs.filter((j) => j.product_id).length, jCars = jobs.length - jProd;
   const jReady = jobs.filter((j) => j.status === 'ready').length, jLate = jobs.filter(isLate).length;
   /* القطع اللي في الجراش دلوقتي: بتاعة السواقين / بتاعة الجراش */
   const drvParts = idx.kinds.part.filter((i) => i.driver_id && i.qty > 0);
@@ -96,7 +97,7 @@ export function HomeTab({ onGo, onLogout }) {
         </button>
         <button class="jobbar" onClick=${() => onGo('jobs')}>
           <span class="jobbar-ic"><${Icon} name="clip" size=${26} /></span>
-          <span class="grow"><b>شغل العربيات</b><small>${jobs.length ? `${jobs.length} عربية في الجراش` : 'مفيش عربيات في الجراش دلوقتي'}${jReady ? ` · ${jReady} جاهزة` : ''}${jLate ? ` · ${jLate} متأخرة` : ''}</small></span>
+          <span class="grow"><b>الشغل</b><small>${jCars ? `${jCars} عربية في الجراش` : 'مفيش عربيات في الجراش'}${jProd ? ` · ${jProd} شغل إنتاج` : ''}${jReady ? ` · ${jReady} جاهزة` : ''}${jLate ? ` · ${jLate} متأخرة` : ''}</small></span>
           <${Icon} name="chev" size=${20} />
         </button>
         ${active.length > 0 && html`<div class="stack">${active.map((t) => html`<${TripCard} t=${t} key=${t.id} />`)}</div>`}

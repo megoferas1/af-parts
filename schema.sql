@@ -2632,3 +2632,51 @@ grant execute on function public.my_msgs(text, boolean), public.job_line_problem
   public.expense_add(text, jsonb), public.expenses_list(text, date, date), public.month_closes_list(text), public.month_close(text, text, jsonb),
   public.job_lines_plan(text, jsonb), public.push_subscribe(text, text, text, text), public.push_unsubscribe(text, text)
   to anon, authenticated;
+
+-- =====================================================================
+-- v23: شغل إنتاج (من غير عربية): منتج تصدير أو ساب فريم، بكمية، والقطع بتتعمل بأكوادها لما يخلص
+-- =====================================================================
+alter table public.jobs add column if not exists product_id uuid references public.items(id) on delete set null;
+alter table public.jobs add column if not exists prod_qty int not null default 0;
+alter table public.jobs add column if not exists made_qty int not null default 0;
+
+create or replace function public.job_set_product(p_token text, p_job uuid, p_item uuid, p_qty int)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  if p_item is not null and not exists (select 1 from public.items where id = p_item and kind = 'product') then raise exception 'bad_kind'; end if;
+  update public.jobs set product_id = p_item, prod_qty = greatest(coalesce(p_qty, 0), 0), updated_at = now() where id = p_job;
+  if not found then raise exception 'not_found'; end if;
+end $$;
+
+-- القطع خلصت: تتعمل بأكوادها (زي «صنّعنا») وتتحسب على الشغل
+create or replace function public.job_produce(p_token text, p_job uuid, p_count int)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); j public.jobs%rowtype; codes jsonb;
+begin
+  select * into j from public.jobs where id = p_job for update;
+  if not found then raise exception 'not_found'; end if;
+  if j.product_id is null then raise exception 'no_product'; end if;
+  codes := public.make_units(p_token, j.product_id, p_count, j.ref);
+  update public.jobs set made_qty = made_qty + p_count, updated_at = now(),
+         status = case when j.prod_qty > 0 and made_qty + p_count >= j.prod_qty and status not in ('delivered', 'cancelled') then 'ready' else status end,
+         status_at = case when j.prod_qty > 0 and made_qty + p_count >= j.prod_qty and status not in ('ready', 'delivered', 'cancelled') then now() else status_at end
+   where id = p_job;
+  return codes;
+end $$;
+
+-- المصاريف: اسم المنتج كمان (لشغل الإنتاج)
+create or replace function public.expenses_list(p_token text, p_from date, p_to date)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  return coalesce((select jsonb_agg(jsonb_build_object('id', e.id, 'item', e.item, 'qty', e.qty, 'price', e.price, 'shop', e.shop,
+            'job_id', e.job_id, 'job', j.ref, 'car', c.name, 'driver', d.name, 'product', pi.name, 'staff', e.staff_name, 'note', e.note,
+            'receipt', e.receipt_path, 'date', e.spent_on) order by e.spent_on, e.created_at)
+    from public.expenses e left join public.jobs j on j.id = e.job_id left join public.cars c on c.id = j.car_id
+         left join public.drivers d on d.id = j.driver_id left join public.items pi on pi.id = j.product_id
+   where e.spent_on between p_from and p_to
+     and (a->>'kind' = 'admin' or e.staff_id = (a->>'id')::uuid)), '[]'::jsonb);
+end $$;
+
+grant execute on function public.job_set_product(text, uuid, uuid, int), public.job_produce(text, uuid, int), public.expenses_list(text, date, date) to anon, authenticated;

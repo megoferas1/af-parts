@@ -1,11 +1,11 @@
 /* units.js — قطع التصدير: كل قطعة ليها كود لوحدها (رقم القطعة + مسلسل، زي AF-ANG-001-0007) */
-import { html, useState, useEffect, Icon, Pill, Empty, Spinner, Field, Stepper, Chips, Act, Sheet, SecTitle, openSheet, toast, confirmBox } from './ui.js?v=22';
-import { call, errText } from './api.js?v=22';
-import { useStore, reload } from './store.js?v=22';
-import * as L from './lib.js?v=22';
-import { StickerSheet } from './stickers.js?v=22';
-import { ItemSheet, run } from './items.js?v=22';
-import { ShipmentForm, ShipmentSheet } from './export.js?v=22';
+import { html, useState, useEffect, Icon, Pill, Empty, Spinner, Field, Stepper, Chips, Act, Sheet, SecTitle, openSheet, toast, confirmBox } from './ui.js?v=23';
+import { call, errText } from './api.js?v=23';
+import { useStore, reload } from './store.js?v=23';
+import * as L from './lib.js?v=23';
+import { StickerSheet } from './stickers.js?v=23';
+import { ItemSheet, run } from './items.js?v=23';
+import { ShipmentForm, ShipmentSheet } from './export.js?v=23';
 
 export const unitLabel = (code, item) => ({ code, title: item.name + (item.size ? ' · ' + item.size : ''), sub: item.name_en || item.part_no || '' });
 
@@ -39,6 +39,32 @@ export function MakeSheet({ id, close }) {
     footer=${html`<button class="btn bigbtn green" disabled=${busy} onClick=${go}>${busy ? 'لحظة...' : html`<${Icon} name="check" size=${22} /> سجّل ${n} واطبع استيكراتهم`}</button>`}>
     <${Stepper} value=${n} min=${1} max=${200} onChange=${setN} big />
     <div class="note info"><${Icon} name="qr" size=${18} /><span>كل قطعة هتاخد كود لوحدها زي <b class="ltr-t">${item.part_no}-0001</b>، وملف الاستيكرات هيطلعلك على طول.</span></div>
+  <//>`;
+}
+
+/* شغل إنتاج: قطع خلصت ← تتسجل بأكوادها على الشغل */
+export function ProduceSheet({ jobId, close }) {
+  const { data, idx } = useStore();
+  const j = data.jobs.find((x) => x.id === jobId);
+  const item = j && idx.items.get(j.product_id);
+  const left = j ? Math.max((j.prod_qty || 0) - (j.made_qty || 0), 1) : 1;
+  const [n, setN] = useState(left);
+  const [busy, setBusy] = useState(false);
+  if (!j || !item) return null;
+  async function go() {
+    setBusy(true);
+    try {
+      const codes = await call('job_produce', { p_job: j.id, p_count: n });
+      await reload().catch(() => {});
+      toast(`اتسجلت ${codes.length} قطعة ✓`);
+      close(); printNew(codes, item);
+    } catch (e) { toast(errText(e), 'bad'); }
+    setBusy(false);
+  }
+  return html`<${Sheet} title="خلص كام قطعة؟" sub=${L.bidi(j.ref, item.name)} onClose=${close}
+    footer=${html`<button class="btn bigbtn green" disabled=${busy} onClick=${go}>${busy ? 'لحظة...' : html`<${Icon} name="check" size=${22} /> سجّل ${n} واطبع استيكراتهم`}</button>`}>
+    <${Stepper} value=${n} min=${1} max=${200} onChange=${setN} big />
+    <div class="note info"><${Icon} name="qr" size=${18} /><span>اتعمل قبل كده ${j.made_qty || 0} من ${j.prod_qty || '?'}. كل قطعة هتاخد كود لوحدها وتدخل المخزن.</span></div>
   <//>`;
 }
 

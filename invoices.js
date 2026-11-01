@@ -1,12 +1,12 @@
 /* invoices.js — الأسعار والفواتير (للإدارة واللي الإدارة اديته الصلاحية) */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=22';
-import { call, errText } from './api.js?v=22';
-import { useStore, getStore, reload, isAdmin } from './store.js?v=22';
-import * as L from './lib.js?v=22';
-import { startNewItem, groupBy, run } from './items.js?v=22';
-import { FileReady } from './stickers.js?v=22';
-import { buildInvoicePdf, fmtMoney, fmtQty, invoiceTotals, fileFrom, safeName } from './docs.js?v=22';
-import { HeroScan } from './home.js?v=22';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=23';
+import { call, errText } from './api.js?v=23';
+import { useStore, getStore, reload, isAdmin } from './store.js?v=23';
+import * as L from './lib.js?v=23';
+import { startNewItem, groupBy, run } from './items.js?v=23';
+import { FileReady } from './stickers.js?v=23';
+import { buildInvoicePdf, fmtMoney, fmtQty, invoiceTotals, fileFrom, safeName } from './docs.js?v=23';
+import { HeroScan } from './home.js?v=23';
 
 export const PKIND = { labor: { label: 'مصنعيات', one: 'مصنعية', icon: 'wrench' }, material: { label: 'قطع وخامات', one: 'قطعة / خامة', icon: 'box' } };
 const CURS = [['EGP', 'جنيه'], ['USD', 'دولار']];
@@ -231,7 +231,7 @@ export function InvoiceForm({ id, preset, close }) {
   const [rateSt, setRateSt] = useState(base.rate != null ? 'saved' : 'loading');
   const [showRate, setShowRate] = useState(old ? !!old.show_rate : true);
   const [date, setDate] = useState(base.inv_date || L.todayStr());
-  const [who, setWho] = useState(base.customer_id ? 'customer' : base.driver_id ? 'driver' : old ? 'new' : data.drivers.length ? 'driver' : 'new');
+  const [who, setWho] = useState(base.customer_id || base.who === 'customer' ? 'customer' : base.driver_id ? 'driver' : old ? 'new' : data.drivers.length ? 'driver' : 'new');
   const [driverId, setDriverId] = useState(base.driver_id || '');
   const [carId, setCarId] = useState('');
   const [custId, setCustId] = useState(base.customer_id || '');

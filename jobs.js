@@ -1,14 +1,15 @@
 /* jobs.js — شغل العربيات: كل عربية داخلة الجراش ليها أمر شغل
    الحالة، الشغل المطلوب، المسؤول، الساعات، الخامات، القطع اللي اتركبت، صور قبل وبعد، والفاتورة منه بدوسة */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=22';
-import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=22';
-import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=22';
-import * as L from './lib.js?v=22';
-import { run, ItemRow, InstallForm } from './items.js?v=22';
-import { DriverForm, CarForm } from './drivers.js?v=22';
-import { InvoiceForm, InvoiceSheet } from './invoices.js?v=22';
-import { HeroScan } from './home.js?v=22';
-import { ScanSheet } from './qr.js?v=22';
+import { html, useState, useEffect, useMemo, Stepper, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=23';
+import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=23';
+import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=23';
+import * as L from './lib.js?v=23';
+import { run, ItemRow, InstallForm } from './items.js?v=23';
+import { DriverForm, CarForm } from './drivers.js?v=23';
+import { InvoiceForm, InvoiceSheet } from './invoices.js?v=23';
+import { HeroScan } from './home.js?v=23';
+import { ScanSheet } from './qr.js?v=23';
+import { ProduceSheet } from './units.js?v=23';
 
 export const JOB_ST = {
   received: { label: 'استلمناها', tone: 'gray', icon: 'clip', sub: 'العربية دخلت الجراش ولسه ما بدأناش' },
@@ -31,6 +32,12 @@ const NEXT = {
   waiting: ['working', 'القطع وصلت — كمّل الشغل', 'wrench'],
   ready: ['delivered', 'اتسلمت لصاحبها', 'car'],
 };
+/* شغل الإنتاج: مفيش عربية تتسلم */
+const NEXT_PROD = {
+  working: ['ready', 'الإنتاج خلص', 'check'],
+  ready: ['delivered', 'اقفل الشغل', 'check'],
+};
+const stLabel = (j, st) => (j.product_id && j.status === 'ready' ? 'الإنتاج خلص' : j.product_id && j.status === 'delivered' ? 'اتقفل' : st.label);
 
 export const isOpenJob = (j) => j.status !== 'delivered' && j.status !== 'cancelled';
 export const isLate = (j) => isOpenJob(j) && j.status !== 'ready' && !!j.due_date && j.due_date < L.todayStr();
@@ -71,9 +78,12 @@ export function JobsTab() {
   else list = open.filter((j) => j.status === f);
   list = list.slice().sort((a, b) => isLate(b) - isLate(a));
   return html`
-    <${Hero} title="شغل العربيات" sub=${`${open.length} عربية في الجراش · ${ready} جاهزة للتسليم`} right=${html`<${HeroScan} />`} />
+    <${Hero} title="الشغل" sub=${`${open.length} شغلانة مفتوحة · ${ready} جاهزة`} right=${html`<${HeroScan} />`} />
     <main class="body">
-      <button class="btn" onClick=${() => openSheet(JobForm, {})}><${Icon} name="plus" size=${22} /> استلام عربية</button>
+      <div class="grid2">
+        <button class="btn" onClick=${() => openSheet(JobForm, {})}><${Icon} name="plus" size=${22} /> استلام عربية</button>
+        <button class="btn dark" onClick=${() => openSheet(JobForm, { prod: true })}><${Icon} name="layers" size=${22} /> شغل إنتاج</button>
+      </div>
       ${data.jobs.length > 0 && html`<${SearchBox} value=${q} onChange=${setQ} placeholder="دوّر بالعربية أو السواق أو رقم أمر الشغل" />
         ${!q.trim() && html`<${Chips} items=${chips} value=${f} onChange=${setF} wrap=${false} />`}`}
       ${list.length === 0 ? html`<${Empty} icon="clip" text=${q.trim() ? 'مفيش حاجة كده' : !data.jobs.length ? 'لسه مفيش عربيات. أول ما عربية تدخل الجراش، دوس "استلام عربية".' : f === 'done' ? 'لسه مفيش عربيات اتسلمت' : 'مفيش عربيات هنا'} />`
@@ -90,20 +100,25 @@ export function JobCard({ j }) {
   return html`<button class=${'tcard jcard j-' + j.status} onClick=${() => openSheet(JobSheet, { id: j.id })}>
     <span class="tcard-ic"><${Icon} name=${st.icon} size=${24} /></span>
     <span class="grow"><b>${car ? car.name : j.title}</b>
-      <small>${L.bidi(d && d.name, JOB_KIND[j.kind] && JOB_KIND[j.kind].label, car ? j.title : '')}</small>
+      <small>${L.bidi(d && d.name, j.product_id ? 'إنتاج · اتعمل ' + (j.made_qty || 0) + ' من ' + (j.prod_qty || '?') : JOB_KIND[j.kind] && JOB_KIND[j.kind].label, car ? j.title : '')}</small>
       ${tasks.length > 0 && isOpenJob(j) && html`<span class="bar"><i style=${'width:' + Math.round((done / tasks.length) * 100) + '%'}></i></span><small>${done} من ${tasks.length} خلصت</small>`}
     </span>
-    <span class="jcard-side"><${Pill} tone=${st.tone}>${st.label}<//>
+    <span class="jcard-side"><${Pill} tone=${st.tone}>${stLabel(j, st)}<//>
       ${late ? html`<${Pill} tone="red" icon="alert">متأخرة<//>` : j.due_date && isOpenJob(j) ? html`<small>تسليم ${L.fmtDateShort(j.due_date)}</small>` : ''}
       <small class="ltr-t">${j.ref}</small></span>
   </button>`;
 }
 
 /* =================================================================== استلام عربية / تعديل */
-export function JobForm({ id, preset, close }) {
+export function JobForm({ id, preset, prod: prodIn, close }) {
   const { data, idx } = useStore();
   const old = id ? idx.jobs.get(id) : null;
   const base = old || preset || {};
+  /* شغل إنتاج (تصدير / صالات...): منتج وعدد بدل العربية */
+  const prod = !!(prodIn || base.product_id);
+  const products = data.items.filter((i) => i.kind === 'product');
+  const [pid, setPid] = useState(base.product_id || '');
+  const [pqty, setPqty] = useState(base.prod_qty || 1);
   const [drv, setDrv] = useState(base.driver_id || '');
   const [car, setCar] = useState(() => {
     if (base.car_id) return base.car_id;
@@ -126,23 +141,41 @@ export function JobForm({ id, preset, close }) {
   const cars = drv ? idx.carsByDriver.get(drv) || [] : [];
   const other = car && data.jobs.find((x) => x.car_id === car && x.id !== id && isOpenJob(x));
   async function save() {
-    if (!drv) return toast('اختار صاحب العربية', 'bad');
-    if (!car) return toast('اختار العربية', 'bad');
-    if (!title.trim()) return toast('اكتب المطلوب يتعمل في العربية', 'bad');
+    if (prod) {
+      if (!pid) return toast('اختار المنتج', 'bad');
+    } else {
+      if (!drv) return toast('اختار صاحب العربية', 'bad');
+      if (!car) return toast('اختار العربية', 'bad');
+      if (!title.trim()) return toast('اكتب المطلوب يتعمل في العربية', 'bad');
+    }
     setBusy(true);
     try {
-      const p = { driver_id: drv, car_id: car, title: title.trim(), kind, note, staff_id: staff || null, due_date: due || null };
+      const pr = prod && idx.items.get(pid);
+      const was = base.product_id && idx.items.get(base.product_id);
+      const auto = !title.trim() || (was && title.trim() === `تصنيع ${base.prod_qty} × ${was.name}`);
+      const t = auto && pr ? `تصنيع ${pqty} × ${pr.name}` : title.trim();
+      const p = prod ? { title: t, kind: 'fab', note, staff_id: staff || null, due_date: due || null }
+        : { driver_id: drv, car_id: car, title: title.trim(), kind, note, staff_id: staff || null, due_date: due || null };
       if (!id) p.tasks = tasks.split('\n').map((t) => t.replace(/^[\s\-•*\d.)]+/, '').trim()).filter(Boolean);
       const r = await call('job_save', { p_id: id || null, p });
+      if (prod) await call('job_set_product', { p_job: id || r.id, p_item: pid, p_qty: pqty });
       await reload().catch(() => {});
-      toast(id ? 'اتحفظ' : 'العربية اتسجلت ' + r.ref);
+      toast(id ? 'اتحفظ' : prod ? 'شغل الإنتاج اتفتح ' + r.ref : 'العربية اتسجلت ' + r.ref);
       close();
       if (!id) openSheet(JobSheet, { id: r.id });
     } catch (e) { toast(errText(e), 'bad'); }
     setBusy(false);
   }
-  return html`<${Sheet} title=${old ? 'تعديل ' + old.ref : 'استلام عربية'} sub=${old ? '' : 'أمر شغل جديد'} onClose=${close} full
-    footer=${html`<button class="btn bigbtn" disabled=${busy} onClick=${save}>${busy ? 'لحظة...' : html`<${Icon} name="check" size=${22} /> ${old ? 'حفظ' : 'استلمنا العربية'}`}</button>`}>
+  return html`<${Sheet} title=${old ? 'تعديل ' + old.ref : prod ? 'شغل إنتاج' : 'استلام عربية'} sub=${old ? '' : prod ? 'تصنيع منتج للتصدير أو للبيع، من غير عربية' : 'أمر شغل جديد'} onClose=${close} full
+    footer=${html`<button class="btn bigbtn" disabled=${busy} onClick=${save}>${busy ? 'لحظة...' : html`<${Icon} name="check" size=${22} /> ${old ? 'حفظ' : prod ? 'افتح الشغل' : 'استلمنا العربية'}`}</button>`}>
+    ${prod ? html`
+    <${Field} label="المنتج" req>
+      ${products.length ? html`<select class="input" value=${pid} onChange=${(e) => setPid(e.target.value)}>
+        <option value="">— اختار المنتج —</option>${products.map((i) => html`<option value=${i.id}>${i.name}${i.part_no ? ' · ' + i.part_no : ''}</option>`)}</select>`
+        : html`<div class="hint">لسه مفيش منتجات تصدير متسجلة. سجّل المنتج الأول من التصدير.</div>`}<//>
+    <${Field} label="هنعمل كام قطعة؟"><${Stepper} value=${pqty} min=${1} max=${200} onChange=${setPqty} /><//>
+    <${Field} label="المطلوب" hint="فاضي = «تصنيع العدد × المنتج»"><input class="input" value=${title} onInput=${(e) => setTitle(e.target.value)} /><//>
+    ` : html`
     <${Field} label="صاحب العربية" req>
       <select class="input" value=${drv} onChange=${(e) => pickDriver(e.target.value)}>
         <option value="">— اختار السواق —</option>${data.drivers.map((d) => html`<option value=${d.id}>${d.name}</option>`)}</select>
@@ -158,6 +191,7 @@ export function JobForm({ id, preset, close }) {
       <${Segmented} value=${kind} onChange=${setKind} items=${[['setup', 'سيت أب'], ['fab', 'فابريكيشن'], ['', 'تانية']]} /><//>
     <${Field} label="المطلوب" req hint="باختصار، مثلاً: رول كيج + كيت زاوية"><input class="input" value=${title} onInput=${(e) => setTitle(e.target.value)} /><//>
     ${!old && JOB_KIND[kind] && html`<div class="sugs"><small>دوس على الشغل اللي هيتعمل:</small>${JOB_KIND[kind].tasks.map((t) => html`<button type="button" class="chip" onClick=${() => addSug(t)}>+ ${t}</button>`)}</div>`}
+    `}
     <${SecTitle}>تفاصيل (اختياري)<//>
     ${!old && html`<${Field} label="الشغل بالتفصيل" hint="كل سطر شغلانة، وهتعلّم عليها وانت بتخلص">
       <textarea class="input" rows="4" dir="auto" value=${tasks} placeholder=${'لحام الرول كيج\nتركيب كيت الزاوية\nضبط الزوايا'} onInput=${(e) => setTasks(e.target.value)}></textarea><//>`}
@@ -200,7 +234,7 @@ export function JobSheet({ id, close }) {
   const staff = j.staff_id && data.staff.find((s) => s.id === j.staff_id);
   const wa = d && L.waNumber(d.phone);
   const late = isLate(j);
-  const next = NEXT[j.status];
+  const next = j.product_id ? (NEXT_PROD[j.status] || NEXT[j.status]) : NEXT[j.status];
   const installs = (parts || []).filter((m) => m.type !== 'removed');
   const removed = (parts || []).filter((m) => m.type === 'removed');
 
@@ -252,15 +286,16 @@ export function JobSheet({ id, close }) {
   const phList = j.photos || [];
   return html`<${Sheet} title=${car ? car.name : j.title} sub=${L.bidi(j.ref, d && d.name)} onClose=${close} full
     footer=${html`<div class="grid2">
-      ${wa ? html`<a class=${'btn sm ' + (j.status === 'ready' ? 'green' : 'ghost')} href=${'https://wa.me/' + wa + '?text=' + encodeURIComponent(waText(j, idx))} target="_blank" rel="noopener"><${Icon} name="chat" size=${19} /> ${j.status === 'ready' ? 'ابعت إنها جاهزة' : 'واتساب لصاحبها'}</a>`
+      ${j.product_id ? html`<button class="btn ghost sm" onClick=${() => openSheet(JobForm, { id: j.id })}><${Icon} name="edit" size=${19} /> تعديل</button>`
+        : wa ? html`<a class=${'btn sm ' + (j.status === 'ready' ? 'green' : 'ghost')} href=${'https://wa.me/' + wa + '?text=' + encodeURIComponent(waText(j, idx))} target="_blank" rel="noopener"><${Icon} name="chat" size=${19} /> ${j.status === 'ready' ? 'ابعت إنها جاهزة' : 'واتساب لصاحبها'}</a>`
         : html`<button class="btn ghost sm" disabled><${Icon} name="chat" size=${19} /> مفيش تليفون</button>`}
       ${canInvoice() ? (j.invoice && j.invoice.id ? html`<button class="btn dark sm" onClick=${() => openSheet(InvoiceSheet, { id: j.invoice.id })}><${Icon} name="file" size=${19} /> ${j.invoice.ref}</button>`
           : html`<button class="btn dark sm" disabled=${busy === 'inv'} onClick=${makeInvoice}><${Icon} name="file" size=${19} /> ${busy === 'inv' ? 'لحظة...' : 'اعمل فاتورة'}</button>`)
         : html`<button class="btn ghost sm" onClick=${() => openSheet(JobForm, { id: j.id })}><${Icon} name="edit" size=${19} /> تعديل</button>`}
     </div>`}>
 
-    <div class="row gap8 wrap"><${Pill} tone=${st.tone} icon=${st.icon}>${st.label}<//>
-      ${JOB_KIND[j.kind] && html`<${Pill} tone="dark" icon=${j.kind === 'fab' ? 'flame' : 'wrench'}>${JOB_KIND[j.kind].label}<//>`}
+    <div class="row gap8 wrap"><${Pill} tone=${st.tone} icon=${st.icon}>${stLabel(j, st)}<//>
+      ${j.product_id ? html`<${Pill} tone="dark" icon="layers">إنتاج<//>` : JOB_KIND[j.kind] && html`<${Pill} tone="dark" icon=${j.kind === 'fab' ? 'flame' : 'wrench'}>${JOB_KIND[j.kind].label}<//>`}
       ${late && html`<${Pill} tone="red" icon="alert">متأخرة<//>`}
       ${j.invoice && html`<${Pill} tone="green" icon="file">${j.invoice.ref}<//>`}</div>
     ${next && html`<button class=${'btn bigbtn ' + (next[0] === 'ready' ? 'green' : next[0] === 'delivered' ? 'dark' : '')} disabled=${busy === 'st'} onClick=${() => setStatus(next[0])}>
@@ -268,8 +303,10 @@ export function JobSheet({ id, close }) {
     ${j.status === 'working' && html`<button class="btn ghost sm" disabled=${busy === 'st'} onClick=${() => setStatus('waiting')}><${Icon} name="timer" size=${18} /> مستنية قطع</button>`}
     <button class="linkbtn" onClick=${() => openSheet(StatusSheet, { cur: j.status, onPick: setStatus })}><${Icon} name="swap" size=${15} /> غيّر الحالة</button>
 
+    ${j.product_id && html`<button class=${'btn ' + ((j.made_qty || 0) < (j.prod_qty || 0) ? 'green' : 'ghost sm')} onClick=${() => openSheet(ProduceSheet, { jobId: j.id })}><${Icon} name="layers" size=${20} /> ${(j.made_qty || 0) < (j.prod_qty || 0) ? 'قطع خلصت' : 'سجّل قطع زيادة'} (اتعمل ${j.made_qty || 0} من ${j.prod_qty || '?'})</button>`}
     <div class="card soft-card jinfo">
       <span>المطلوب</span><b dir="auto">${j.title}</b>
+      ${j.product_id && html`<span>المنتج</span><b dir="auto">${(idx.items.get(j.product_id) || {}).name || '—'} × ${j.prod_qty || '?'}</b>`}
       ${d && html`<span>صاحبها</span><b>${d.name}${d.phone && html` · <a class="ltr-t" href=${'tel:' + d.phone}>${d.phone}</a>`}</b>`}
       ${car && car.plate && html`<span>اللوحة</span><b>${car.plate}</b>`}
       <span>المسؤول</span><b>${staff ? staff.name : '—'}</b>
@@ -529,7 +566,11 @@ export function invoiceFromJob(j, parts) {
   const { idx } = getStore();
   const { car, d } = jobParts(j, idx);
   const lines = [];
+  const pr = j.product_id && idx.items.get(j.product_id);
+  if (pr) lines.push({ kind: 'product', ref_id: pr.id, part_no: pr.part_no || '', desc_ar: pr.name, desc_en: pr.name_en || pr.name, qty: Number(j.made_qty) || Number(j.prod_qty) || 1, unit: '',
+    src_price: pr.price != null ? Number(pr.price) : null, src_cur: pr.price_cur || 'USD', manual: false });
   (j.lines || []).forEach((l) => {
+    if (pr && l.kind === 'task') return; /* شغلانات الإنتاج مش بنود في فاتورة المنتج */
     const x = l.price_item_id && idx.priceItems.get(l.price_item_id);
     if (x) {
       lines.push({ kind: x.kind, ref_id: x.id, part_no: x.part_no || '', desc_ar: l.title, desc_en: x.name_en || l.title, qty: Number(l.qty) || 1,
@@ -547,7 +588,7 @@ export function invoiceFromJob(j, parts) {
   });
   gp.forEach((g) => lines.push({ kind: 'free', ref_id: null, part_no: '', desc_ar: g.name, desc_en: g.name, qty: g.qty || 1, unit: '', src_price: null, price: null }));
   return {
-    lang: 'ar', currency: 'EGP', driver_id: (d && d.id) || null, job_id: j.id,
+    lang: 'ar', currency: pr ? pr.price_cur || 'USD' : 'EGP', who: pr ? 'customer' : undefined, driver_id: (d && d.id) || null, job_id: j.id,
     bill: { name: (d && d.name) || '', phone: (d && d.phone) || '', address: '', country: '',
       extra: car ? 'العربية: ' + [car.name, car.plate].filter(Boolean).join(' · ') : '' },
     notes: 'أمر شغل ' + j.ref + ' — ' + j.title,
