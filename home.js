@@ -1,20 +1,21 @@
 /* home.js — الرئيسية + السكان العام + البحث */
-import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=27';
-import { call, errText } from './api.js?v=27';
-import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=27';
-import * as L from './lib.js?v=27';
-import { ItemRow, ItemSheet, startNewItem } from './items.js?v=27';
-import { ScanSheet } from './qr.js?v=27';
-import { UnitSheet } from './units.js?v=27';
-import { TripCard } from './trips.js?v=27';
-import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=27';
-import { BlankStickersSheet } from './stickers.js?v=27';
-import { PurchasesSheet } from './purchases.js?v=27';
-import { LogSheet } from './log.js?v=27';
-import { AdminSheet } from './admin.js?v=27';
-import { isOpenJob, isLate } from './jobs.js?v=27';
-import { openAssistant, useInbox } from './assistant.js?v=27';
-import { TodaySheet, PushCard, openTasks } from './today.js?v=27';
+import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=28';
+import { call, errText } from './api.js?v=28';
+import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=28';
+import * as L from './lib.js?v=28';
+import { ItemRow, ItemSheet, startNewItem } from './items.js?v=28';
+import { ScanSheet } from './qr.js?v=28';
+import { UnitSheet } from './units.js?v=28';
+import { TripCard } from './trips.js?v=28';
+import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=28';
+import { BlankStickersSheet } from './stickers.js?v=28';
+import { PurchasesSheet } from './purchases.js?v=28';
+import { LogSheet } from './log.js?v=28';
+import { AdminSheet } from './admin.js?v=28';
+import { isOpenJob, isLate } from './jobs.js?v=28';
+import { openAssistant, useInbox } from './assistant.js?v=28';
+import { TodaySheet, PushCard, openTasks } from './today.js?v=28';
+import { QuickSheet, QUICK } from './quick.js?v=28';
 
 /* السكان العام: يفتح الحاجة، أو يسجّل استيكر فاضي */
 export function scanOpen() {
@@ -97,6 +98,7 @@ export function HomeTab({ onGo, onLogout }) {
           <span class="grow"><b>${data.me && data.me.kind === 'admin' ? 'خطة الشغل' : 'شغلي النهارده'}</b><small>${myLine}</small></span>
           <${Icon} name="chev" size=${20} />
         </button>
+        <div class="qrow">${QUICK.map(([k, lb, ic]) => html`<button class="qbtn" key=${k} onClick=${() => openSheet(QuickSheet, { mode: k })}><${Icon} name=${ic} size=${20} /><span>${lb}</span></button>`)}</div>
         <button class="jobbar" onClick=${() => onGo('jobs')}>
           <span class="jobbar-ic"><${Icon} name="clip" size=${26} /></span>
           <span class="grow"><b>الشغل</b><small>${jCars ? `${jCars} عربية في الجراش` : 'مفيش عربيات في الجراش'}${jProd ? ` · ${jProd} شغل إنتاج` : ''}${jReady ? ` · ${jReady} جاهزة` : ''}${jLate ? ` · ${jLate} متأخرة` : ''}</small></span>

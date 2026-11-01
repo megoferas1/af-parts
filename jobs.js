@@ -1,16 +1,16 @@
 /* jobs.js — شغل العربيات: كل عربية داخلة الجراش ليها أمر شغل
    الحالة، الشغل المطلوب، المسؤول، الساعات، الخامات، القطع اللي اتركبت، صور قبل وبعد، والفاتورة منه بدوسة */
-import { html, useState, useEffect, useMemo, Stepper, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=27';
-import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=27';
-import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=27';
-import * as L from './lib.js?v=27';
-import { run, ItemRow, InstallForm } from './items.js?v=27';
-import { DriverForm, CarForm } from './drivers.js?v=27';
-import { InvoiceForm, InvoiceSheet } from './invoices.js?v=27';
-import { HeroScan } from './home.js?v=27';
-import { ScanSheet } from './qr.js?v=27';
-import { ProduceSheet } from './units.js?v=27';
-import { JobPurchases } from './purchases.js?v=27';
+import { html, useState, useEffect, useMemo, Stepper, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=28';
+import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=28';
+import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=28';
+import * as L from './lib.js?v=28';
+import { run, ItemRow, InstallForm } from './items.js?v=28';
+import { DriverForm, CarForm } from './drivers.js?v=28';
+import { InvoiceForm, InvoiceSheet } from './invoices.js?v=28';
+import { HeroScan } from './home.js?v=28';
+import { ScanSheet } from './qr.js?v=28';
+import { ProduceSheet } from './units.js?v=28';
+import { JobPurchases } from './purchases.js?v=28';
 
 export const JOB_ST = {
   received: { label: 'استلمناها', tone: 'gray', icon: 'clip', sub: 'العربية دخلت الجراش ولسه ما بدأناش' },
@@ -206,6 +206,22 @@ export function JobForm({ id, preset, prod: prodIn, close }) {
 }
 
 /* =================================================================== أمر الشغل */
+/* أقرب شغلانة قديمة ليها خطوات (نفس المنتج، أو نفس الكلام في العنوان، أو نفس العربية) */
+function similarJob(j, data) {
+  const W = (x) => L.norm(x).split(/[\s\-_/()×x*]+/).filter((w) => w.length >= 3);
+  const mine = new Set([...W(j.title), ...W(((j.car_id && data.cars.find((c) => c.id === j.car_id)) || {}).name || '')]);
+  let best = null, bs = 0;
+  for (const o of data.jobs) {
+    if (o.id === j.id || !tasksOf(o).length) continue;
+    let sc = j.product_id && o.product_id === j.product_id ? 10 : 0;
+    if (j.kind && o.kind === j.kind) sc += 0.5;
+    const ow = [...W(o.title), ...W(((o.car_id && data.cars.find((c) => c.id === o.car_id)) || {}).name || '')];
+    sc += new Set(ow.filter((w) => mine.has(w))).size;
+    if (sc > bs || (sc === bs && best && (o.created_at || '') > (best.created_at || ''))) { bs = sc; best = o; }
+  }
+  return bs >= 2 ? best : null;
+}
+
 export function JobSheet({ id, close }) {
   const { data, idx } = useStore();
   const [extra, setExtra] = useState(null);       // أمر شغل قديم مش في الليستة
@@ -252,9 +268,22 @@ export function JobSheet({ id, close }) {
   }
   async function toggle(l) {
     const r = await run(() => call('job_line_done', { p_id: l.id, p_done: !l.done }));
-    if (r.ok && !l.done) import('./assistant.js?v=27').then((m) => m.turnNotify(j.id)).catch(() => {});
+    if (r.ok && !l.done) import('./assistant.js?v=28').then((m) => m.turnNotify(j.id)).catch(() => {});
   }
   const nextStep = tasks.find((l) => !l.done && !l.waiting);
+  const tpl = tasks.length === 0 ? similarJob(j, data) : null;
+  async function copyTpl() {
+    setBusy('tpl');
+    const steps = tasksOf(tpl).map((l, i) => ({ title: l.title, staff_id: l.staff_id || '', errand: !!l.errand, waiting: i > 0 && !!l.waiting, note: l.note || '' }));
+    const buy = (tpl.lines || []).filter((l) => l.kind === 'buy').map((l) => ({ title: l.title, qty: Number(l.qty) || 1, unit: l.unit || '', note: l.note || '' }));
+    // اللي اتشرى للشغلانة القديمة يبقى «لسه هنشتري» هنا، ومعاه سعره آخر مرة
+    try {
+      const ex = await call('job_expenses', { p_job: tpl.id });
+      for (const e of ex || []) if (!buy.some((b) => L.norm(b.title) === L.norm(e.item))) buy.push({ title: e.item, qty: Number(e.qty) || 1, unit: '', note: 'آخر مرة ' + Math.round(e.price) + ' ج' + (e.shop ? ' من ' + e.shop : '') });
+    } catch (e) { /* من غير مشتريات */ }
+    await run(() => call('job_steps_add', { p_job: j.id, p_steps: steps, p_buy: buy, p_remove: [] }), 'اتنسخت ' + steps.length + ' خطوة من ' + tpl.ref + ' — عدّل اللي عايزه');
+    setBusy('');
+  }
   async function addTask(title) {
     const t = (title || nt).trim();
     if (!t) return toast('اكتب الشغلانة', 'bad');
@@ -318,6 +347,8 @@ export function JobSheet({ id, close }) {
     <${SecTitle} right=${tasks.length ? html`<span class="num">${done} من ${tasks.length}</span>` : ''}>الخطوات<//>
     <div class="card tight jsteps">
       ${tasks.length === 0 && html`<div class="hint">مفيش خطوات لسه. دوس «+ إضافة» أو قول للمدير.</div>`}
+      ${tasks.length === 0 && tpl && html`<button class="tplbtn" disabled=${busy === 'tpl'} onClick=${copyTpl}>
+        <${Icon} name="list" size=${18} /><span class="grow"><b>انسخ خطوات شغلانة زيها</b><small dir="auto">${tpl.ref} · ${tpl.title} · ${tasksOf(tpl).length} خطوة</small></span></button>`}
       ${tasks.map((l, i) => {
         const who = l.staff_id && (data.staff.find((s) => s.id === l.staff_id) || {}).name;
         const isNext = nextStep && l.id === nextStep.id;

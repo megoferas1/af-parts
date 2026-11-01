@@ -1,6 +1,6 @@
 /* push.js — إشعارات الموبايل (المدير بيبعت لكل موظف شغله وبيسأله خلص إيه) */
-import { call } from './api.js?v=27';
-import { fnCall } from './assistant.js?v=27';
+import { call } from './api.js?v=28';
+import { fnCall } from './assistant.js?v=28';
 
 // مفتاح الإشعارات العام بيتعمل على السيرفر أول مرة ويتحفظ هناك
 let VKEY = null;

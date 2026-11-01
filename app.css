@@ -703,3 +703,15 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 .addlinks { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; }
 .addrow.sm { padding: 8px 0 2px; align-items: center; }
 .addrow.sm .btn { width: 44px; min-height: 44px; }
+/* v28: زراير سريعة */
+.qrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 8px; }
+.qbtn { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border: 1.5px solid var(--line); border-radius: 14px; background: #fff; color: var(--ink); font-weight: 800; font-size: 13.5px; }
+.qbtn:active { transform: scale(.97); }
+.qmodes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 4px; }
+.qmode { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border: 1.5px solid var(--line); border-radius: 14px; background: #fff; color: var(--mute); font-weight: 800; font-size: 13.5px; }
+.qmode.on { border-color: var(--ink); background: var(--ink); color: #fff; }
+.pickrow.on { background: var(--gray-soft); border-radius: 10px; padding-inline: 8px; }
+.qradio { width: 20px; height: 20px; border-radius: 50%; border: 2px solid #c9ccd3; flex: none; }
+.qradio.on { border: 6px solid var(--ink); }
+.tplbtn { display: flex; align-items: center; gap: 10px; width: 100%; margin: 8px 0 4px; padding: 10px 12px; border: 1.5px dashed var(--ink); border-radius: 14px; background: #fff; color: var(--ink); text-align: start; }
+.tplbtn b { display: block; font-size: 14.5px; } .tplbtn small { display: block; color: var(--mute); font-size: 12px; }

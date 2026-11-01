@@ -1,22 +1,23 @@
 /* assistant.js — «المدير»: مساعد بتكلمه عربي أو إنجليزي، بيرد من بيانات السيستم وبيعمل الحاجات بعد ما توافق
    الذكاء من Gemini (مجاني) عن طريق Supabase Edge Function اسمها ai — المفتاح هناك مش هنا.
    ولو الذكاء مش متاح، الزراير اللي تحت والبحث العادي شغالين. */
-import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=27';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=27';
-import { sb, call, errText, staffSession } from './api.js?v=27';
-import { useStore, getStore, reload, canInvoice } from './store.js?v=27';
-import * as L from './lib.js?v=27';
-import { ItemSheet, startNewItem, InstallForm } from './items.js?v=27';
-import { DriverSheet } from './drivers.js?v=27';
-import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=27';
-import { TripSheet, TripForm } from './trips.js?v=27';
-import { ShipmentSheet, ShipmentForm } from './export.js?v=27';
-import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=27';
-import { FileReady } from './stickers.js?v=27';
-import { CATS, PurchasesSheet } from './purchases.js?v=27';
-import { LogSheet } from './log.js?v=27';
-import { scanOpen } from './home.js?v=27';
-import { prepReceipt, uploadReceipt, expensesIn, analyze, monthReport, monthPdf, closeMonth, egp, monthOf, lastMonth, monthName, carOf } from './money.js?v=27';
+import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=28';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=28';
+import { sb, call, errText, staffSession } from './api.js?v=28';
+import { useStore, getStore, reload, canInvoice } from './store.js?v=28';
+import * as L from './lib.js?v=28';
+import { ItemSheet, startNewItem, InstallForm } from './items.js?v=28';
+import { DriverSheet } from './drivers.js?v=28';
+import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=28';
+import { TripSheet, TripForm } from './trips.js?v=28';
+import { ShipmentSheet, ShipmentForm } from './export.js?v=28';
+import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=28';
+import { FileReady } from './stickers.js?v=28';
+import { CATS, PurchasesSheet } from './purchases.js?v=28';
+import { LogSheet } from './log.js?v=28';
+import { QuickSheet, QUICK, mySteps, guessCat, jobLabel } from './quick.js?v=28';
+import { scanOpen } from './home.js?v=28';
+import { prepReceipt, uploadReceipt, expensesIn, analyze, monthReport, monthPdf, closeMonth, egp, monthOf, lastMonth, monthName, carOf } from './money.js?v=28';
 
 /* ============================================================ أدوات صغيرة */
 const st = () => getStore();
@@ -1021,6 +1022,7 @@ function systemText() {
   const me = data.me;
   const drivers = data.drivers.slice(0, 250).map((d) => d.name + ((idx.carsByDriver.get(d.id) || []).length ? ' [' + idx.carsByDriver.get(d.id).map((c) => c.name).join('، ') + ']' : '')).join(' · ');
   return `إنت «المدير»، مساعد جراش AF Fabworks جوه ابلكيشن AF Parts. الجراش في العاشر من رمضان: فابريكيشن وتجهيز عربيات دريفت، تصنيع قطع وتصديرها (كيت زاوية ANG، قواعد ماتور ENG، دراعات ARM، ضبط تو TOE، رول كيج CAG، تعليق SUS، شاسيه CHS)، صيانة عربيات السواقين، وطلعات سباق وتمرين.
+في الابلكيشن زراير سريعة (خلصت، اشتريت، مشكلة، مستني) والموظف يقدر يسجّل بيها من غير كلام، والكلام الواضح زي «اشترينا كذا بكام لعربية كذا» أو «خلصت كذا» بيتسجل بالكود لوحده. إنت بتاخد الكلام اللي محتاج فهم.
 
 النهارده ${L.todayStr()} يوم ${DAYN[new Date(L.todayStr() + 'T12:00:00').getDay()]} (${L.fmtDate(L.todayStr())}). اللي بيكلمك: ${me.kind === 'admin' ? 'الإدارة' : me.name + ' (موظف)'}${canInvoice() ? '، ومعاه صلاحية الفواتير والأسعار' : '، ومعندوش صلاحية فواتير أو أسعار بيع (ما تقولش أسعار البيع ولا الفواتير خالص، بس مشترياته هو سجّلها بسعرها عادي)'}.
 الموظفين واللي كل واحد بيعرف يعمله (المدير بيتعلمه لوحده من الشغل اللي اتوزع عليه قبل كده): ${data.staff.map((s) => s.name + ' [' + (s.skill || 'لسه مفيش') + ']').join(' · ') || 'مفيش'}.
@@ -1205,6 +1207,123 @@ async function runTool(fc) {
   }
 }
 
+/* ============================================================ v28: الطريق السريع (كود من غير ذكاء)
+   الكلام الواضح («اشترينا مسامير بـ120 للفورد»، «خلصت اللحام»، «شغلي») بيتفهم بالكود على طول
+   ويطلع كارت تأكيد. اللي الكود مش متأكد منه بيروح للذكاء الاصطناعي زي الأول. */
+let SKIP_FAST = false;
+const AR_DIG = (s) => String(s).replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
+const BUY_RE = /(^|\s)(اشتريت|اشترينا|اشتري|اشترى|جبت|جبنا|جاب|جابوا|دفعت|دفعنا|صرفت|صرفنا|حاسبت|حاسبنا)(ها|هم|ه|و)?(?=\s|$)/;
+const DONE_RE = /^(انا |أنا |احنا |إحنا )?(خلصت|خلّصت|خلصنا|خلّصنا|خلص|خلّص|خلاص خلصت)(?=\s|$)\s*(.*)$/;
+const FILL = /(^|\s)(انا|أنا|احنا|إحنا|النهارده|النهاردة|امبارح|إمبارح|يا|مدير|المدير|حاجة|حاجه|كمان|بقي|بقى|عشان|علشان|لل|ل|على|علي|بتاع|بتاعة|بتاعت|جنيه|جنية|ج|ب|بـ|بسعر|بمبلغ|و|في|فيه)(?=\s|$)/g;
+function priceOf(t) {
+  const set = new Set(); const hits = [];
+  for (const m of t.matchAll(/(^|\s)(?:بـ|ب|بسعر|بمبلغ)\s*(\d+(?:[.,]\d+)?)(?=\s|$|ج)/g)) { set.add(m[2]); hits.push(m[0]); }
+  for (const m of t.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:جنيه|جنية|ج\.?م?)(?=\s|$)/g)) { set.add(m[1]); hits.push(m[0]); }
+  return set.size === 1 ? { price: Number([...set][0].replace(',', '.')), hits } : null;
+}
+/* أسامي العربيات غالباً بالإنجليزي والموظف بيكتب عربي */
+const TRANS = { 'فورد': 'ford', 'موستانج': 'mustang', 'موستنج': 'mustang', 'بي ام': 'bmw', 'بيم': 'bmw', 'بي إم': 'bmw', 'نيسان': 'nissan', 'تويوتا': 'toyota', 'سيلفيا': 'silvia', 'سوبرا': 'supra', 'مازدا': 'mazda', 'هوندا': 'honda', 'شيفروليه': 'chevrolet', 'شيفورليه': 'chevrolet', 'كمارو': 'camaro', 'كامارو': 'camaro', 'لكزس': 'lexus', 'مرسيدس': 'mercedes', 'اودي': 'audi', 'أودي': 'audi', 'جولف': 'golf', 'فولكس': 'volkswagen', 'ميتسوبيشي': 'mitsubishi', 'لانسر': 'lancer', 'سوبارو': 'subaru', 'هيونداي': 'hyundai', 'كيا': 'kia', 'بيجو': 'peugeot', 'دودج': 'dodge', 'جيب': 'jeep', 'كورفيت': 'corvette', 'تشالنجر': 'challenger', 'سكايلاين': 'skyline', 'كراون': 'crown', 'مارك': 'mark' };
+const GENERIC = new Set(['car', 'كيت', 'الكيت', 'عربيه', 'عربية', 'العربيه', 'العربية', 'تصنيع', 'شغل', 'صاله', 'صالة']);
+function tokens(s) {
+  let t = ' ' + N(s) + ' ';
+  for (const [ar, en] of Object.entries(TRANS)) t = t.split(' ' + N(ar) + ' ').join(' ' + en + ' ').split(' ال' + N(ar) + ' ').join(' ' + en + ' ').split(' لل' + N(ar) + ' ').join(' ' + en + ' ');
+  return t.split(/[\s\-_/()]+/).map((w) => w.replace(/^(لل|ل)(?=[a-z0-9])/, '')).filter((w) => w.length >= 2);
+}
+function jobIn(t) {
+  const { data } = st();
+  const ref = t.match(/job[\s-]*0*(\d+)/i);
+  if (ref) { const j = data.jobs.find((x) => Number(String(x.ref).replace(/\D/g, '')) === Number(ref[1])); return j ? { j, hit: [ref[0]] } : null; }
+  const tw = new Set(tokens(t));
+  const sc = [];
+  for (const j of data.jobs.filter(openJob)) {
+    const car = j.car_id && data.cars.find((c) => c.id === j.car_id);
+    const pr = j.product_id && data.items.find((i) => i.id === j.product_id);
+    const d = j.driver_id && data.drivers.find((x) => x.id === j.driver_id);
+    const names = [car && car.name, pr && pr.name, car && car.plate].filter(Boolean).flatMap(tokens).filter((w) => !GENERIC.has(w));
+    let hit = names.filter((w) => tw.has(w)).length;
+    if (d && tokens(d.name).length >= 2 && tokens(d.name).every((w) => tw.has(w))) hit += 2;
+    if (hit) sc.push({ j, hit });
+  }
+  sc.sort((a, b) => b.hit - a.hit);
+  if (!sc.length || (sc.length > 1 && sc[0].hit === sc[1].hit)) return null;
+  const j = sc[0].j;
+  const car = j.car_id && data.cars.find((c) => c.id === j.car_id);
+  const pr = j.product_id && data.items.find((i) => i.id === j.product_id);
+  return { j, hit: [car && car.name, pr && pr.name].filter(Boolean) };
+}
+function fastParse(text) {
+  const t = AR_DIG(text).replace(/[،,]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/^(شغلي|ايه شغلي|إيه شغلي|شغلي ايه|شغلي إيه|عليا ايه|عليا إيه|المطلوب مني ايه|المطلوب مني إيه)( النهارده| النهاردة)?\s*[؟?]?$/.test(t)) return { open: 'my' };
+  const d = t.match(DONE_RE);
+  if (d) {
+    const q = d[3].replace(/^(من |في )/, '').trim();
+    const list = mySteps(st().data);
+    let best = null;
+    if (!q) { const now = list.filter((x) => x.turn); if (now.length === 1) best = now[0]; }
+    else {
+      const qw = words(q);
+      const sc = list.map((x) => { const tw = words(x.l.title); const hit = tw.filter((w) => qw.some((v) => v.includes(w) || w.includes(v))).length; return { x, hit, need: Math.max(1, Math.ceil(tw.length / 2)) }; })
+        .filter((y) => y.hit >= y.need).sort((a, b) => b.hit - a.hit);
+      if (sc.length && (sc.length === 1 || sc[0].hit > sc[1].hit)) best = sc[0].x;
+    }
+    return best ? { name: 'tasks_done', args: { job: best.j.ref, tasks: [best.l.title], done: true } } : null;
+  }
+  if (BUY_RE.test(t)) {
+    const p = priceOf(t); if (!p) return null;
+    const jb = jobIn(t);
+    const general = /(مصاريف عامه|مصاريف عامة|للجراش|للورشه|للورشة)/.test(t);
+    if (!jb && !general) return null;
+    let item = ' ' + t + ' ';
+    item = item.replace(BUY_RE, ' ');
+    for (const h of p.hits) item = item.replace(h, ' ');
+    if (jb) {
+      const jw = new Set(jb.hit.flatMap(tokens));
+      item = ' ' + item.split(' ').filter((w) => !w || !tokens(w).some((x) => jw.has(x))).join(' ') + ' ';
+      item = item.replace(/job[\s-]*0*\d+/i, ' ');
+    }
+    item = item.replace(/(مصاريف عامه|مصاريف عامة|للجراش|للورشه|للورشة)/, ' ');
+    let shop = '';
+    const sm = item.match(/(?:^|\s)من (?:عند )?(\S+(?: \S+)?)\s*$/); if (sm) { shop = sm[1]; item = item.replace(sm[0], ' '); }
+    for (let k = 0; k < 3; k++) item = item.replace(FILL, ' ');
+    item = item.replace(/(?<!\d)\.|\.(?!\d)|[!؟?]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (item.length < 2 || item.length > 40) return null;
+    let qty = 1;
+    const qm = item.match(/(?:^|\s)(\d+)\s*(?:حته|حتة|حتت|قطع|قطعه|قطعة|عدد|كيس|علب|علبه|علبة)(?=\s|$)/) || item.match(/(?:^|\s)(?:عدد)\s*(\d+)(?=\s|$)/);
+    if (qm) { qty = Number(qm[1]); item = item.replace(qm[0], ' ').replace(/\s+/g, ' ').trim(); }
+    if (!item) return null;
+    item = item.replace(/^لل/, 'ال');
+    if (/^ال(خراط|جلفنه|جلفنة|صنايعي|ليزر)$/.test(item)) item = 'مصنعية ' + item;
+    return { name: 'add_expense', args: { items: [{ item, qty, price: p.price, cat: guessCat(item) }], ...(jb ? { job: jb.j.ref } : {}), ...(shop ? { shop } : {}) } };
+  }
+  return null;
+}
+/* بيرجع true لو الكود خلّص الرسالة لوحده */
+async function fastPath(text) {
+  if (SKIP_FAST) { SKIP_FAST = false; return false; }
+  let f = null;
+  try { f = fastParse(text); } catch (e) { f = null; }
+  if (!f) return false;
+  if (f.open === 'my') {
+    const { TodaySheet } = await import('./today.js?v=28');
+    openSheet(TodaySheet, {});
+    push({ kind: 'ai', text: 'فتحتلك شغلك بالترتيب 👆' });
+    return true;
+  }
+  const W = WRITE[f.name];
+  if (!W || !allowed(W)) return false;
+  let c;
+  try { c = await W.check(f.args); } catch (e) { return false; }
+  if (!c || !c.ok) return false;
+  const ok = await askConfirm(W.card(c.ok));
+  if (!ok) { SKIP_FAST = true; push({ kind: 'ai', text: 'تمام، مش هسجّلها. اكتبلي تاني بالتفصيل الصح وأنا أظبطها.' }); return 'no'; }
+  try {
+    const r = await W.exec(c.ok);
+    reload().catch(() => {});
+    push({ kind: 'ai', text: '✓ ' + (r.done || 'تمام') + (r.next_step ? '\nالخطوة الجاية: ' + (typeof r.next_step === 'string' ? r.next_step : JSON.stringify(r.next_step)) : '') + (r.price_changes ? '\nالسعر اتغيّر: ' + r.price_changes.join('، ') : '') });
+    return r.done || 'تمام';
+  } catch (e) { push({ kind: 'err', text: errText(e) }); return 'err'; }
+}
+
 export async function send(text, img) {
   text = String(text || '').trim();
   ownerCheck();
@@ -1214,6 +1333,15 @@ export async function send(text, img) {
   if (NOTES === null) await loadNotes();
   push({ kind: 'me', text, img: img && img.url });
   if (img) LAST_IMG = img;
+  if (!img) {
+    const thinking0 = push({ kind: 'wait' });
+    const done = await fastPath(text);
+    MSGS = MSGS.filter((m) => m.id !== thinking0);
+    if (done) {
+      HIST.push({ role: 'user', parts: [{ text }] }, { role: 'model', parts: [{ text: '[اتعمل بالكود من غير ذكاء: ' + (done === true ? 'فتحت شغله' : done === 'no' ? 'المستخدم رفض الكارت' : done) + ']' }] });
+      BUSY = false; emit(); return;
+    }
+  }
   HIST.push({ role: 'user', parts: img ? [{ text: text + '\n[مع الرسالة صورة]' }, { inlineData: { mimeType: 'image/jpeg', data: img.b64 } }] : [{ text }] });
   const thinking = push({ kind: 'wait' });
   const turnRefs = [];
@@ -1272,6 +1400,7 @@ function quick() {
   const { data } = st();
   const late = data.jobs.filter(isLate);
   const q = [
+    ...QUICK.map(([k, lb, ic]) => [ic, lb, () => openSheet(QuickSheet, { mode: k })]),
     ['clip', 'عربية داخلة', () => openSheet(JobForm, {})],
     ['scan', 'سكان', scanOpen],
     canInvoice() && ['file', 'فاتورة جديدة', () => openSheet(InvoiceForm, {})],

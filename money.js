@@ -1,8 +1,8 @@
 /* money.js — المشتريات والمصاريف: تسجيل بصورة الفاتورة، تحليل الشهر، PDF، وقفل الشهر (مسح صور الفواتير) */
-import { sb, call, compressImage } from './api.js?v=27';
-import { getStore } from './store.js?v=27';
-import * as L from './lib.js?v=27';
-import { buildPdf, fileFrom, safeName } from './docs.js?v=27';
+import { sb, call, compressImage } from './api.js?v=28';
+import { getStore } from './store.js?v=28';
+import * as L from './lib.js?v=28';
+import { buildPdf, fileFrom, safeName } from './docs.js?v=28';
 
 const r0 = (n) => Math.round(Number(n) || 0);
 export const egp = (n) => r0(n).toLocaleString('en-US') + ' ج';

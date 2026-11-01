@@ -1,11 +1,13 @@
 /* today.js — «شغلي النهارده» للموظف، و«خطة الأيام» للإدارة، وزرار الإشعارات */
-import { html, useState, useEffect, Icon, Sheet, Empty, Pill, toast } from './ui.js?v=27';
-import { call, errText } from './api.js?v=27';
-import { useStore } from './store.js?v=27';
-import * as L from './lib.js?v=27';
-import { run } from './items.js?v=27';
-import { isOpenJob } from './jobs.js?v=27';
-import { pushState, enablePush, needsInstallOnIOS } from './push.js?v=27';
+import { html, useState, useEffect, Icon, Sheet, Empty, Pill, toast } from './ui.js?v=28';
+import { call, errText } from './api.js?v=28';
+import { useStore } from './store.js?v=28';
+import * as L from './lib.js?v=28';
+import { run } from './items.js?v=28';
+import { isOpenJob } from './jobs.js?v=28';
+import { pushState, enablePush, needsInstallOnIOS } from './push.js?v=28';
+import { QuickSheet, QUICK, openSteps, jobLabel } from './quick.js?v=28';
+import { openSheet } from './ui.js?v=28';
 
 const DAYS = ['الحد', 'الاتنين', 'التلات', 'الأربع', 'الخميس', 'الجمعة', 'السبت'];
 export const dayName = (d) => { const t = L.todayStr(); if (d === t) return 'النهارده'; if (d === L.addDays(t, 1)) return 'بكرة'; return DAYS[new Date(d + 'T12:00:00').getDay()] + ' ' + d.slice(8) + '/' + d.slice(5, 7); };
@@ -33,7 +35,7 @@ function MyStep({ l, n, of, wait, j }) {
   async function done() {
     setBusy(true);
     const r = await run(() => call('job_line_done', { p_id: l.id, p_done: true }), 'برافو ✓');
-    if (r.ok) import('./assistant.js?v=27').then((m) => m.turnNotify(j.id)).catch(() => {});
+    if (r.ok) import('./assistant.js?v=28').then((m) => m.turnNotify(j.id)).catch(() => {});
     setBusy(false);
   }
   return html`<div class=${'step' + (wait ? '' : ' now')}>
@@ -41,6 +43,22 @@ function MyStep({ l, n, of, wait, j }) {
     <div class="step-t grow"><span dir="auto">${n}. ${l.errand ? '🚚 ' : ''}${l.title}</span>
       <small class=${wait ? '' : 'now'} dir="auto">${wait ? '⏳ ' + wait : 'عليك دلوقتي'}${l.note ? ' · ' + l.note : ''}</small></div>
   </div>`;
+}
+
+/* الإدارة: كل موظف شغال على إيه دلوقتي، واللي واقف بمشكلة (كله من الكود) */
+function NowBoard({ data }) {
+  const steps = openSteps(data).filter((x) => x.turn);
+  const probs = openSteps(data).filter((x) => x.l.problem);
+  const rows = data.staff.map((s) => ({ s, now: steps.filter((x) => x.l.staff_id === s.id) }));
+  const noOne = steps.filter((x) => !x.l.staff_id);
+  return html`<div class="sec-title"><span class="grow">دلوقتي</span><small class="soft">مين على إيه</small></div>
+    <div class="card tight">${rows.map(({ s, now }) => html`<div class="lrow" key=${s.id}>
+      <span class="grow"><b>${s.name}</b><small dir="auto">${now.length ? now.slice(0, 2).map((x) => x.l.title + ' ← ' + x.j.ref).join(' · ') + (now.length > 2 ? ' · و' + (now.length - 2) + ' كمان' : '') : 'فاضي — مفيش خطوة عليه دلوقتي'}</small></span>
+      <b class=${'num ' + (now.length ? '' : 'soft')}>${now.length}</b></div>`)}
+      ${noOne.length > 0 && html`<div class="lrow"><span class="grow"><b class="red-t">من غير موظف</b><small dir="auto">${noOne.slice(0, 3).map((x) => x.l.title + ' ← ' + x.j.ref).join(' · ')}</small></span><b class="num red-t">${noOne.length}</b></div>`}
+    </div>
+    ${probs.length > 0 && html`<div class="sec-title"><span class="grow red-t">واقف بمشكلة</span><${Pill} tone="red">${probs.length}<//></div>
+      <div class="card tight">${probs.map((x) => html`<div class="lrow" key=${x.l.id}><span class="grow"><b dir="auto">${x.l.title}</b><small dir="auto" class="red-t">⚠️ ${x.l.problem}</small><small dir="auto">${jobLabel(x.j, data)}${x.l.staff_id ? ' · ' + ((data.staff.find((s) => s.id === x.l.staff_id) || {}).name || '') : ''}</small></span></div>`)}</div>`}`;
 }
 
 export function TodaySheet({ close }) {
@@ -58,6 +76,7 @@ export function TodaySheet({ close }) {
     const nm = (id) => (data.staff.find((s) => s.id === id) || {}).name || 'حد';
     const doneToday = all.filter((t) => t.staff_id === me.id && t.done && t.done_at && L.ymd(new Date(t.done_at)) === today);
     return html`<${Sheet} title="شغلي" sub="بالترتيب — دوس على المربع لما تخلص" onClose=${close}>
+      <div class="qrow">${QUICK.filter(([k]) => k !== 'done').map(([k, lb, ic]) => html`<button class="qbtn" key=${k} onClick=${() => openSheet(QuickSheet, { mode: k })}><${Icon} name=${ic} size=${20} /><span>${lb}</span></button>`)}</div>
       ${jobs.length === 0 && html`<${Empty} icon="check" text="مفيش شغل عليك دلوقتي 👌" />`}
       ${jobs.map(({ j, steps, mine, car }) => html`<div key=${j.id}><div class="sec-title"><span class="grow">${car}</span><small class="soft">${j.ref}</small></div>
         <div class="card tight jsteps">${mine.map(({ l, i, prev }) => html`<${MyStep} key=${l.id} l=${l} n=${i + 1} of=${steps.length}
@@ -74,6 +93,7 @@ export function TodaySheet({ close }) {
   const noDay = pending.filter((t) => !t.plan_date);
   const noOne = pending.filter((t) => !t.staff_id);
   return html`<${Sheet} title="خطة الشغل" sub="مين عليه إيه كل يوم — قول للمدير «قسّم شغل الأسبوع» يقسّمه" onClose=${close}>
+    <${NowBoard} data=${data} />
     <div class="chips nowrap">${days.map((d) => html`<button class=${'chip ' + (d === day ? 'on' : '')} onClick=${() => setDay(d)}>${dayName(d)} <small>${pending.filter((t) => (d === today ? t.plan_date && t.plan_date <= today : t.plan_date === d)).length || ''}</small></button>`)}</div>
     ${people.filter((p) => p.list.length).length === 0 && html`<${Empty} icon="cal" text=${'مفيش شغل متقسّم على ' + dayName(day)} />`}
     ${people.filter((p) => p.list.length).map((p) => html`<div key=${p.s.id}><div class="sec-title"><span class="grow">${p.s.name}</span><${Pill}>${p.list.length}<//></div>

@@ -1,11 +1,11 @@
 /* purchases.js — المشتريات: جوه كل شغلانة (بأنواعها وفاتورتها)، وصفحة كل المشتريات (مسح وتعديل للإدارة) */
-import { html, useState, useEffect, Icon, Pill, Empty, Spinner, Field, Chips, Sheet, SecTitle, openSheet, toast, confirmBox, NumInput, parseNum } from './ui.js?v=27';
-import { call, errText, sb } from './api.js?v=27';
-import { useStore, getStore, isAdmin, reload } from './store.js?v=27';
-import * as L from './lib.js?v=27';
-import { buildPdf, fileFrom, safeName } from './docs.js?v=27';
-import { FileReady } from './stickers.js?v=27';
-import { egp, carOf, monthOf, expensesIn } from './money.js?v=27';
+import { html, useState, useEffect, Icon, Pill, Empty, Spinner, Field, Chips, Sheet, SecTitle, openSheet, toast, confirmBox, NumInput, parseNum } from './ui.js?v=28';
+import { call, errText, sb } from './api.js?v=28';
+import { useStore, getStore, isAdmin, reload } from './store.js?v=28';
+import * as L from './lib.js?v=28';
+import { buildPdf, fileFrom, safeName } from './docs.js?v=28';
+import { FileReady } from './stickers.js?v=28';
+import { egp, carOf, monthOf, expensesIn } from './money.js?v=28';
 
 /* أنواع المشتريات (المدير بيختار لوحده) */
 export const CATS = ['خراطة', 'خامات', 'مسامير وصواميل', 'جلفنة ودهان', 'شغل بره', 'نقل ومشاوير', 'تانية'];

@@ -1,11 +1,11 @@
 /* units.js — قطع التصدير: كل قطعة ليها كود لوحدها (رقم القطعة + مسلسل، زي AF-ANG-001-0007) */
-import { html, useState, useEffect, Icon, Pill, Empty, Spinner, Field, Stepper, Chips, Act, Sheet, SecTitle, openSheet, toast, confirmBox } from './ui.js?v=27';
-import { call, errText } from './api.js?v=27';
-import { useStore, reload } from './store.js?v=27';
-import * as L from './lib.js?v=27';
-import { StickerSheet } from './stickers.js?v=27';
-import { ItemSheet, run } from './items.js?v=27';
-import { ShipmentForm, ShipmentSheet } from './export.js?v=27';
+import { html, useState, useEffect, Icon, Pill, Empty, Spinner, Field, Stepper, Chips, Act, Sheet, SecTitle, openSheet, toast, confirmBox } from './ui.js?v=28';
+import { call, errText } from './api.js?v=28';
+import { useStore, reload } from './store.js?v=28';
+import * as L from './lib.js?v=28';
+import { StickerSheet } from './stickers.js?v=28';
+import { ItemSheet, run } from './items.js?v=28';
+import { ShipmentForm, ShipmentSheet } from './export.js?v=28';
 
 export const unitLabel = (code, item) => ({ code, title: item.name + (item.size ? ' · ' + item.size : ''), sub: item.name_en || item.part_no || '' });
 
