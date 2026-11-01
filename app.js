@@ -1,20 +1,22 @@
 /* app.js — نقطة البداية: الدخول والتابات */
-import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=19';
-import { SUPABASE_URL } from './config.js?v=19';
-import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=19';
-import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=19';
-import { HomeTab } from './home.js?v=19';
-import { DriversTab } from './drivers.js?v=19';
-import { PrintQueueFab } from './stickers.js?v=19';
-import { ToolsTab } from './tools.js?v=19';
-import { ExportTab } from './export.js?v=19';
-import { TripsTab } from './trips.js?v=19';
-import { InvoicesTab } from './invoices.js?v=19';
-import { JobsTab, isOpenJob } from './jobs.js?v=19';
-import { ItemSheet, startNewItem } from './items.js?v=19';
-import { CODE_RE } from './qr.js?v=19';
-import { UnitSheet } from './units.js?v=19';
-import { AssistantFab } from './assistant.js?v=19';
+import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=20';
+import { SUPABASE_URL } from './config.js?v=20';
+import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=20';
+import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=20';
+import { HomeTab } from './home.js?v=20';
+import { DriversTab } from './drivers.js?v=20';
+import { PrintQueueFab } from './stickers.js?v=20';
+import { ToolsTab } from './tools.js?v=20';
+import { ExportTab } from './export.js?v=20';
+import { TripsTab } from './trips.js?v=20';
+import { InvoicesTab } from './invoices.js?v=20';
+import { JobsTab, isOpenJob } from './jobs.js?v=20';
+import { ItemSheet, startNewItem } from './items.js?v=20';
+import { CODE_RE } from './qr.js?v=20';
+import { UnitSheet } from './units.js?v=20';
+import { AssistantFab, openAssistant } from './assistant.js?v=20';
+import { TodaySheet } from './today.js?v=20';
+import { syncPush } from './push.js?v=20';
 
 /* لو حصل خطأ غير متوقع نعرضه بدل شاشة بيضا */
 function showFatal(msg) {
@@ -122,6 +124,13 @@ function Main({ onLogout }) {
     go();
     window.addEventListener('hashchange', go);
     return () => window.removeEventListener('hashchange', go);
+  }, [!!S.data]);
+  /* فتح من إشعار المدير: ?my=1 شغلي، ?ai=1 المدير */
+  useEffect(() => {
+    if (!S.data) return;
+    const q = new URLSearchParams(location.search);
+    if (q.has('my') || q.has('ai')) { history.replaceState(null, '', location.pathname); if (q.has('my')) openSheet(TodaySheet); else openAssistant(); }
+    syncPush();
   }, [!!S.data]);
   useEffect(() => { window.scrollTo(0, 0); }, [tab]);
 

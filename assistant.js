@@ -1,20 +1,20 @@
 /* assistant.js — «المدير»: مساعد بتكلمه عربي أو إنجليزي، بيرد من بيانات السيستم وبيعمل الحاجات بعد ما توافق
    الذكاء من Gemini (مجاني) عن طريق Supabase Edge Function اسمها ai — المفتاح هناك مش هنا.
    ولو الذكاء مش متاح، الزراير اللي تحت والبحث العادي شغالين. */
-import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=19';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=19';
-import { sb, call, errText, staffSession } from './api.js?v=19';
-import { useStore, getStore, reload, canInvoice } from './store.js?v=19';
-import * as L from './lib.js?v=19';
-import { ItemSheet, startNewItem, InstallForm } from './items.js?v=19';
-import { DriverSheet } from './drivers.js?v=19';
-import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=19';
-import { TripSheet, TripForm } from './trips.js?v=19';
-import { ShipmentSheet, ShipmentForm } from './export.js?v=19';
-import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=19';
-import { FileReady } from './stickers.js?v=19';
-import { LogSheet } from './log.js?v=19';
-import { scanOpen } from './home.js?v=19';
+import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=20';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=20';
+import { sb, call, errText, staffSession } from './api.js?v=20';
+import { useStore, getStore, reload, canInvoice } from './store.js?v=20';
+import * as L from './lib.js?v=20';
+import { ItemSheet, startNewItem, InstallForm } from './items.js?v=20';
+import { DriverSheet } from './drivers.js?v=20';
+import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=20';
+import { TripSheet, TripForm } from './trips.js?v=20';
+import { ShipmentSheet, ShipmentForm } from './export.js?v=20';
+import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=20';
+import { FileReady } from './stickers.js?v=20';
+import { LogSheet } from './log.js?v=20';
+import { scanOpen } from './home.js?v=20';
 
 /* ============================================================ أدوات صغيرة */
 const st = () => getStore();
@@ -250,6 +250,29 @@ const READ = {
       };
     },
   },
+  present_today: {
+    d: 'مين حاضر النهارده في الجراش ومين غايب أو أجازة (من أبلكيشن الحضور)، ومواعيد الشيفت (shifts: ميعاد حضور كل واحد، shift_hours: ساعات اليوم)',
+    async run() {
+      try { const r = await fnCall({ action: 'present' }); return r; } catch (e) { return { error: 'الحضور مش متوصل: ' + (e.detail || e.message) }; }
+    },
+  },
+  day_plan: {
+    d: 'خطة الشغل: كل يوم مين عليه إيه (الشغلانات المتقسمة على الأيام)، واللي لسه من غير يوم أو من غير موظف',
+    p: S_('object', { from: str('أول يوم YYYY-MM-DD (افتراضي النهارده)'), days: num('كام يوم (افتراضي 7)') }),
+    run({ from, days }) {
+      const { data, idx } = st();
+      const t0 = from || L.todayStr(); const n = Math.min(Math.max(Number(days) || 7, 1), 21);
+      const open = data.jobs.filter(isOpenJob).flatMap((j) => (j.lines || []).filter((l) => l.kind === 'task' && !l.done).map((l) => ({ l, j })));
+      const fmt = ({ l, j }) => j.ref + ' ' + ((idx.cars.get(j.car_id) || {}).name || j.title || '') + ': ' + l.title + (l.staff_id ? ' ← ' + staffName(l.staff_id) : ' ← محدش');
+      const out = {};
+      for (let i = 0; i < n; i++) {
+        const d = L.addDays(t0, i);
+        const list = open.filter((x) => (i === 0 ? x.l.plan_date && x.l.plan_date <= d : x.l.plan_date === d));
+        if (list.length) out[d] = list.map(fmt);
+      }
+      return { days: out, no_day: open.filter((x) => !x.l.plan_date).map(fmt), off_staff_hint: 'شوف ذاكرتك لأيام الإجازة' };
+    },
+  },
   staff_work: {
     d: 'الشغل اللي على كل موظف (أو موظف واحد): الشغلانات اللي لسه، وساعاته في آخر 7 أيام. استخدمها لتقسيم المهام',
     p: S_('object', { staff: str('اسم الموظف (اختياري)') }),
@@ -446,6 +469,28 @@ const WRITE = {
     async exec(o) {
       for (const x of o.list) await call('staff_set_skill', { p_staff: x.s.id, p_skill: x.skill });
       return { done: 'اتحفظت' };
+    },
+  },
+  plan_tasks: {
+    d: 'قسّم شغلانات على أيام وموظفين (خطة الأسبوع). كل بند: أمر الشغل، الشغلانة، اليوم، والموظف (اختياري لو هيفضل نفس اللي عليها)',
+    p: S_('object', { items: arr(S_('object', { job: str('أمر الشغل أو العربية'), task: str('الشغلانة'), date: str('YYYY-MM-DD'), staff: str('الموظف (اختياري)') }, ['job', 'task', 'date']), 'البنود') }, ['items']),
+    check(a) {
+      const list = [];
+      for (const x of a.items || []) {
+        const j = findJob(x.job); if (!j.one) return j.many ? ambig('أمر شغل', j.many, (y) => jobOut(y)) : notFound('أمر شغل', x.job);
+        const t = pick((j.one.lines || []).filter((l) => l.kind === 'task'), x.task, (l) => l.title);
+        if (!t.one) return t.many ? ambig('شغلانة', t.many, (l) => l.title) : notFound('شغلانة', x.task);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date || '')) return { error: 'bad_date', date: x.date };
+        let s;
+        if (x.staff) { const r = findStaff(x.staff); if (!r.one) return r.many ? ambig('موظف', r.many, (y) => y.name) : notFound('موظف', x.staff); s = r.one; }
+        list.push({ job: j.one, line: t.one, date: x.date, staff: s });
+      }
+      return list.length ? { ok: { list } } : { error: 'مفيش بنود' };
+    },
+    card: (o) => ({ title: 'خطة الشغل', icon: 'cal', list: [...o.list].sort((a, b) => (a.date < b.date ? -1 : 1)).map((x) => dayLabel(x.date) + ' · ' + (x.staff ? x.staff.name : staffName(x.line.staff_id) || 'محدش') + ' ← ' + x.line.title + ' (' + x.job.ref + ')') }),
+    async exec(o) {
+      const n = await call('job_lines_plan', { p_items: o.list.map((x) => ({ id: x.line.id, date: x.date, ...(x.staff ? { staff_id: x.staff.id } : {}) })) });
+      return { done: 'اتقسمت ' + n + ' شغلانة' };
     },
   },
   tasks_done: {
@@ -676,6 +721,8 @@ const OPEN = {
   },
 };
 
+const DAYN = ['الحد', 'الاتنين', 'التلات', 'الأربع', 'الخميس', 'الجمعة', 'السبت'];
+const dayLabel = (d) => (d === L.todayStr() ? 'النهارده' : d === L.addDays(L.todayStr(), 1) ? 'بكرة' : DAYN[new Date(d + 'T12:00:00').getDay()] + ' ' + d.slice(8) + '/' + d.slice(5, 7));
 const isAdmin = () => ((st().data || {}).me || {}).kind === 'admin';
 const allowed = (t) => (!t.inv || canInvoice()) && (!t.admin || isAdmin());
 function toolDecls() {
@@ -691,7 +738,7 @@ function systemText() {
   const drivers = data.drivers.slice(0, 250).map((d) => d.name + ((idx.carsByDriver.get(d.id) || []).length ? ' [' + idx.carsByDriver.get(d.id).map((c) => c.name).join('، ') + ']' : '')).join(' · ');
   return `إنت «المدير»، مساعد جراش AF Fabworks جوه ابلكيشن AF Parts. الجراش في العاشر من رمضان: فابريكيشن وتجهيز عربيات دريفت، تصنيع قطع وتصديرها (كيت زاوية ANG، قواعد ماتور ENG، دراعات ARM، ضبط تو TOE، رول كيج CAG، تعليق SUS، شاسيه CHS)، صيانة عربيات السواقين، وطلعات سباق وتمرين.
 
-النهارده ${L.todayStr()} (${L.fmtDate(L.todayStr())}). اللي بيكلمك: ${me.kind === 'admin' ? 'الإدارة' : me.name + ' (موظف)'}${canInvoice() ? '، ومعاه صلاحية الفواتير والأسعار' : '، ومعندوش صلاحية فواتير أو أسعار (ما تقولش أسعار خالص)'}.
+النهارده ${L.todayStr()} يوم ${DAYN[new Date(L.todayStr() + 'T12:00:00').getDay()]} (${L.fmtDate(L.todayStr())}). اللي بيكلمك: ${me.kind === 'admin' ? 'الإدارة' : me.name + ' (موظف)'}${canInvoice() ? '، ومعاه صلاحية الفواتير والأسعار' : '، ومعندوش صلاحية فواتير أو أسعار (ما تقولش أسعار خالص)'}.
 الموظفين واللي كل واحد بيعرف يعمله (المدير بيتعلمه لوحده من الشغل اللي اتوزع عليه قبل كده): ${data.staff.map((s) => s.name + ' [' + (s.skill || 'لسه مفيش') + ']').join(' · ') || 'مفيش'}.
 السواقين وعربياتهم: ${drivers || 'مفيش'}.
 ${(NOTES || []).length ? 'اللي الإدارة علّمتهولك قبل كده (اتبعه دايماً، وهو أهم من أي كلام تحت):\n' + NOTES.map((n) => '• ' + n.note).join('\n') : ''}
@@ -714,6 +761,8 @@ ${(NOTES || []).length ? 'اللي الإدارة علّمتهولك قبل كد
   • هاند بريك هيدروليك: تركيب الدراع، خراطيم الفرامل، تنفيس وتجربة.
   • سمكرة: فك، فرد، لحام لو محتاج، معجون، دهان، تركيب.
   • صيانة: زيت وفلاتر، فرامل، كهربا، كشف عام.
+- خطة الأسبوع: لما الإدارة تقول «قسّم الشغل» أو تكتب شغل كتير: شوف day_plan وpresent_today وstaff_work وذاكرتك (أيام الإجازة ومواعيد التسليم). وزّع على الأيام من النهارده: الأقرب في التسليم الأول، والشغلانات بترتيبها المنطقي (الفك قبل اللحام قبل التركيب)، وكل موظف ساعات شيفته في اليوم (shift_hours من present_today، زي ما هي في ابلكيشن الحضور)، والجمعة أجازة (قدّر الوقت من past_jobs، ولو مفيش: الشغلانة الصغيرة ساعتين والكبيرة يوم). ومحدش ياخد شغل في يوم إجازته أو وهو غايب. وبعدها نادي plan_tasks مرة واحدة بكل البنود.
+- لو حد غايب النهارده (present_today) وعليه شغل، قول للإدارة واقترح مين ياخده.
 - اتعلم من الإدارة: لما الإدارة تصححك أو تقولك معلومة أو طريقة شغل (زي «الكرونة فابريكيشن»، «ماتسألش عن الميعاد»، «فلان مابيشتغلش يوم الجمعة»)، نادي remember بجملة قصيرة عامة، وكمّل شغلك عادي. ولو قالت إن حاجة محفوظة بقت غلط، استخدم forget.
 - ما تسألش نفس السؤال مرتين: قبل أي سؤال اقرا الكلام اللي فات في الشات واللي في ذاكرتك. لو الإجابة موجودة أو تقدر تستنتجها، اشتغل بيها على طول.
 - السواق: لو اسمه مش في ليستة السواقين يبقى جديد أكيد، ما تسألش «جديد ولا متسجل؟» ولا تعمل save_driver لوحده: create_job بيسجل السواق والعربية لوحده. ولو فيه أكتر من سواق بنفس الاسم بس اسأل أنهي واحد.
@@ -745,6 +794,16 @@ function patch(id, p) { MSGS = MSGS.map((m) => (m.id === id ? { ...m, ...p } : m
 
 // ترتيب موديلات Gemini (الأسرع الأول). السيرفر بيجرب اللي بعده لو واحد مش متاح.
 const AI_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-flash-lite-latest'];
+export async function fnCall(body, ms = 30000) {
+  let auth = 'Bearer ' + SUPABASE_KEY;
+  try { const { data } = await sb.auth.getSession(); if (data && data.session) auth = 'Bearer ' + data.session.access_token; } catch (e) { /* موظف */ }
+  const r = await fetch(SUPABASE_URL + '/functions/v1/ai', { method: 'POST', signal: AbortSignal.timeout(ms),
+    headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: auth },
+    body: JSON.stringify({ token: staffSession.token || '', ...body }) });
+  const j = await r.json().catch(() => ({ error: 'http_' + r.status }));
+  if (!r.ok || j.error) { const e = new Error(j.error || 'http_' + r.status); e.detail = j.detail || ''; throw e; }
+  return j;
+}
 async function askAI(contents) {
   let auth = 'Bearer ' + SUPABASE_KEY;
   try { const { data } = await sb.auth.getSession(); if (data && data.session) auth = 'Bearer ' + data.session.access_token; } catch (e) { /* موظف */ }

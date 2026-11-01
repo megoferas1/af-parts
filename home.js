@@ -1,18 +1,19 @@
 /* home.js — الرئيسية + السكان العام + البحث */
-import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=19';
-import { call, errText } from './api.js?v=19';
-import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=19';
-import * as L from './lib.js?v=19';
-import { ItemRow, ItemSheet, startNewItem } from './items.js?v=19';
-import { ScanSheet } from './qr.js?v=19';
-import { UnitSheet } from './units.js?v=19';
-import { TripCard } from './trips.js?v=19';
-import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=19';
-import { BlankStickersSheet } from './stickers.js?v=19';
-import { LogSheet } from './log.js?v=19';
-import { AdminSheet } from './admin.js?v=19';
-import { isOpenJob, isLate } from './jobs.js?v=19';
-import { openAssistant } from './assistant.js?v=19';
+import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=20';
+import { call, errText } from './api.js?v=20';
+import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=20';
+import * as L from './lib.js?v=20';
+import { ItemRow, ItemSheet, startNewItem } from './items.js?v=20';
+import { ScanSheet } from './qr.js?v=20';
+import { UnitSheet } from './units.js?v=20';
+import { TripCard } from './trips.js?v=20';
+import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=20';
+import { BlankStickersSheet } from './stickers.js?v=20';
+import { LogSheet } from './log.js?v=20';
+import { AdminSheet } from './admin.js?v=20';
+import { isOpenJob, isLate } from './jobs.js?v=20';
+import { openAssistant } from './assistant.js?v=20';
+import { TodaySheet, PushCard, openTasks } from './today.js?v=20';
 
 /* السكان العام: يفتح الحاجة، أو يسجّل استيكر فاضي */
 export function scanOpen() {
@@ -51,6 +52,12 @@ export function HomeTab({ onGo, onLogout }) {
   const active = data.trips.filter((t) => t.status !== 'closed');
   const me = data.me;
   const jobs = data.jobs.filter(isOpenJob);
+  const myLine = (() => {
+    const t = L.todayStr(); const all = openTasks(data).filter((x) => !x.done && (!x.plan_date || x.plan_date <= t));
+    if (data.me && data.me.kind === 'admin') { const n = all.filter((x) => x.plan_date).length; return n ? `${n} شغلانة متقسمة على النهارده` : 'قسّم الشغل على الأيام والموظفين'; }
+    const mine = all.filter((x) => x.staff_id === (data.me || {}).id).length;
+    return mine ? `عليك ${mine} شغلانة` : 'مفيش شغل عليك دلوقتي';
+  })();
   const jReady = jobs.filter((j) => j.status === 'ready').length, jLate = jobs.filter(isLate).length;
   /* القطع اللي في الجراش دلوقتي: بتاعة السواقين / بتاعة الجراش */
   const drvParts = idx.kinds.part.filter((i) => i.driver_id && i.qty > 0);
@@ -78,6 +85,12 @@ export function HomeTab({ onGo, onLogout }) {
         <button class="aibar" onClick=${() => openAssistant()}>
           <span class="aibar-ic"><${Icon} name="spark" size=${24} /></span>
           <span class="grow"><b>اسأل المدير</b><small>اكتبله أي حاجة: فين قطعة، استلم عربية، اعمل فاتورة...</small></span>
+          <${Icon} name="chev" size=${20} />
+        </button>
+        <${PushCard} />
+        <button class="jobbar" onClick=${() => openSheet(TodaySheet)}>
+          <span class="jobbar-ic"><${Icon} name="cal" size=${24} /></span>
+          <span class="grow"><b>${data.me && data.me.kind === 'admin' ? 'خطة الشغل' : 'شغلي النهارده'}</b><small>${myLine}</small></span>
           <${Icon} name="chev" size=${20} />
         </button>
         <button class="jobbar" onClick=${() => onGo('jobs')}>

@@ -2400,3 +2400,76 @@ begin
   if a->>'kind' <> 'admin' then raise exception 'admin_only'; end if;
   delete from public.ai_notes where id = p_id;
 end $$;
+
+-- =====================================================================
+-- v20: خطة الأسبوع + إشعارات الموظفين + المدير بيتابع لوحده
+-- =====================================================================
+alter table public.job_lines add column if not exists plan_date date;
+create index if not exists job_lines_plan_idx on public.job_lines (plan_date) where plan_date is not null;
+
+-- تقسيم الشغلانات على الأيام والموظفين (items: [{id, date, staff_id?}])
+create or replace function public.job_lines_plan(p_token text, p_items jsonb)
+returns int language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); x jsonb; n int := 0;
+begin
+  for x in select * from jsonb_array_elements(coalesce(p_items, '[]'::jsonb)) loop
+    update public.job_lines l
+       set plan_date = nullif(x->>'date', '')::date,
+           staff_id = case when x ? 'staff_id' then nullif(x->>'staff_id', '')::uuid else l.staff_id end
+     where l.id = (x->>'id')::uuid and l.kind = 'task';
+    if found then n := n + 1; end if;
+  end loop;
+  update public.jobs set updated_at = now() where id in (select job_id from public.job_lines where id in (select (y->>'id')::uuid from jsonb_array_elements(p_items) y));
+  return n;
+end $$;
+
+-- أجهزة الإشعارات (كل موظف أو الإدارة)
+create table if not exists public.push_subs (
+  endpoint text primary key,
+  staff_id uuid references public.staff(id) on delete cascade,
+  is_admin boolean not null default false,
+  p256dh text not null,
+  auth text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.push_subs enable row level security;
+revoke all on public.push_subs from anon, authenticated;
+
+create or replace function public.push_subscribe(p_token text, p_endpoint text, p_p256dh text, p_auth text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  if coalesce(p_endpoint, '') = '' then raise exception 'empty'; end if;
+  insert into public.push_subs (endpoint, staff_id, is_admin, p256dh, auth)
+  values (p_endpoint, case when a->>'kind' = 'staff' then (a->>'id')::uuid end, a->>'kind' = 'admin', p_p256dh, p_auth)
+  on conflict (endpoint) do update set staff_id = excluded.staff_id, is_admin = excluded.is_admin, p256dh = excluded.p256dh, auth = excluded.auth;
+end $$;
+
+create or replace function public.push_unsubscribe(p_token text, p_endpoint text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  delete from public.push_subs where endpoint = p_endpoint;
+end $$;
+
+-- أسرار السيرفر (مفاتيح الإشعارات وغيره): السيرفر بس اللي بيقراها
+create table if not exists public.app_secrets (k text primary key, v text not null);
+alter table public.app_secrets enable row level security;
+revoke all on public.app_secrets from anon, authenticated;
+
+-- المدير بيصحى كل ساعة (الفانكشن هي اللي بتقرر تبعت إيه على حسب الساعة في القاهرة)
+do $cron$
+begin
+  create extension if not exists pg_cron;
+  create extension if not exists pg_net with schema extensions;
+  perform cron.unschedule(jobid) from cron.job where jobname = 'af-ai-tick';
+  perform cron.schedule('af-ai-tick', '0 * * * *', $job$
+    select net.http_post(
+      url := 'https://kxunqzyodtqzkktgbqct.supabase.co/functions/v1/ai',
+      headers := '{"Content-Type": "application/json"}'::jsonb,
+      body := jsonb_build_object('action', 'tick', 'key', (select v from public.app_secrets where k = 'cron_key'))
+    );
+  $job$);
+exception when others then
+  raise notice 'cron setup skipped: %', sqlerrm;
+end $cron$;
