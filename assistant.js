@@ -1,20 +1,20 @@
 /* assistant.js — «المدير»: مساعد بتكلمه عربي أو إنجليزي، بيرد من بيانات السيستم وبيعمل الحاجات بعد ما توافق
    الذكاء من Gemini (مجاني) عن طريق Supabase Edge Function اسمها ai — المفتاح هناك مش هنا.
    ولو الذكاء مش متاح، الزراير اللي تحت والبحث العادي شغالين. */
-import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=18';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=18';
-import { sb, call, errText, staffSession } from './api.js?v=18';
-import { useStore, getStore, reload, canInvoice } from './store.js?v=18';
-import * as L from './lib.js?v=18';
-import { ItemSheet, startNewItem, InstallForm } from './items.js?v=18';
-import { DriverSheet } from './drivers.js?v=18';
-import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=18';
-import { TripSheet, TripForm } from './trips.js?v=18';
-import { ShipmentSheet, ShipmentForm } from './export.js?v=18';
-import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=18';
-import { FileReady } from './stickers.js?v=18';
-import { LogSheet } from './log.js?v=18';
-import { scanOpen } from './home.js?v=18';
+import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=19';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=19';
+import { sb, call, errText, staffSession } from './api.js?v=19';
+import { useStore, getStore, reload, canInvoice } from './store.js?v=19';
+import * as L from './lib.js?v=19';
+import { ItemSheet, startNewItem, InstallForm } from './items.js?v=19';
+import { DriverSheet } from './drivers.js?v=19';
+import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=19';
+import { TripSheet, TripForm } from './trips.js?v=19';
+import { ShipmentSheet, ShipmentForm } from './export.js?v=19';
+import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=19';
+import { FileReady } from './stickers.js?v=19';
+import { LogSheet } from './log.js?v=19';
+import { scanOpen } from './home.js?v=19';
 
 /* ============================================================ أدوات صغيرة */
 const st = () => getStore();
@@ -119,7 +119,32 @@ const en = (vals, d) => ({ type: 'string', enum: vals, description: d });
 const TASK = S_('object', { title: str('الشغلانة'), staff: str('اسم الموظف اللي هيعملها (اختياري)') }, ['title']);
 
 /* قراية (بتشتغل على طول) */
+// ذاكرة المدير: اللي الإدارة علّمتهوله (بتتحفظ في قاعدة البيانات)
+let NOTES = null;
+async function loadNotes() { try { NOTES = await call('ai_notes_list'); } catch (e) { NOTES = NOTES || []; } }
 const READ = {
+  remember: {
+    d: 'احفظ في ذاكرتك الدايمة حاجة الإدارة علّمتهالك أو صححتهالك (قاعدة، معلومة عن الشغل، طريقة تفضلها). اكتبها جملة قصيرة عامة تنفع بعد كده. بتتحفظ على طول من غير كارت',
+    p: S_('object', { note: str('اللي اتعلمته، جملة قصيرة') }, ['note']),
+    admin: true,
+    async run({ note }) {
+      const t = String(note || '').trim(); if (!t) return { error: 'empty' };
+      if ((NOTES || []).some((n) => n.note === t)) return { ok: 'محفوظة قبل كده' };
+      await call('ai_note_add', { p_note: t }); await loadNotes();
+      return { ok: 'اتحفظت' };
+    },
+  },
+  forget: {
+    d: 'امسح حاجة من ذاكرتك الدايمة (لو الإدارة قالت إنها غلط أو اتغيرت)',
+    p: S_('object', { note: str('الكلام اللي يتمسح أو جزء منه') }, ['note']),
+    admin: true,
+    async run({ note }) {
+      const r = pick(NOTES || [], note, (n) => n.note);
+      if (!r.one) return r.many ? ambig('حاجة', r.many, (n) => n.note) : notFound('حاجة', note);
+      await call('ai_note_del', { p_id: r.one.id }); await loadNotes();
+      return { ok: 'اتمسحت: ' + r.one.note };
+    },
+  },
   summary: {
     d: 'ملخص الجراش دلوقتي: العربيات، المتأخر، الجاهز، القطع، الطلعات، الشحنات، الفواتير',
     p: S_('object', {}),
@@ -558,7 +583,7 @@ const WRITE = {
     async exec(o) { const n = await call('item_move', { p_item: o.i.id, p_type: o.type, p_qty: o.qty, p_note: o.note }); return { done: 'اتسجلت · بقى ' + n, _refs: [['item', o.i.id, o.i.name]] }; },
   },
   save_driver: {
-    d: 'سجّل سواق جديد (ومعاه عربية لو اتقالت)',
+    d: 'سجّل سواق جديد لوحده (ومعاه عربية لو اتقالت). مش وقت استلام عربية: ساعتها create_job بيسجله',
     p: S_('object', { name: str('الاسم'), phone: str('التليفون'), car: str('العربية (اختياري)'), plate: str('اللوحة') }, ['name']),
     check(a) { const d = findDriver(a.name); return { ok: { a, warn: d.one ? 'فيه سواق متسجل بنفس الاسم: ' + d.one.name : '' } }; },
     card: (o) => ({ title: 'سواق جديد', icon: 'user', rows: [['الاسم', o.a.name], o.a.phone && ['التليفون', o.a.phone], o.a.car && ['العربية', o.a.car + (o.a.plate ? ' · ' + o.a.plate : '')]], warn: o.warn }),
@@ -651,7 +676,8 @@ const OPEN = {
   },
 };
 
-const allowed = (t) => !t.inv || canInvoice();
+const isAdmin = () => ((st().data || {}).me || {}).kind === 'admin';
+const allowed = (t) => (!t.inv || canInvoice()) && (!t.admin || isAdmin());
 function toolDecls() {
   const out = [];
   for (const g of [READ, WRITE, OPEN]) for (const [name, t] of Object.entries(g)) if (allowed(t)) out.push({ name, description: t.d, ...(t.p ? { parameters: t.p } : {}) });
@@ -668,6 +694,7 @@ function systemText() {
 النهارده ${L.todayStr()} (${L.fmtDate(L.todayStr())}). اللي بيكلمك: ${me.kind === 'admin' ? 'الإدارة' : me.name + ' (موظف)'}${canInvoice() ? '، ومعاه صلاحية الفواتير والأسعار' : '، ومعندوش صلاحية فواتير أو أسعار (ما تقولش أسعار خالص)'}.
 الموظفين واللي كل واحد بيعرف يعمله (المدير بيتعلمه لوحده من الشغل اللي اتوزع عليه قبل كده): ${data.staff.map((s) => s.name + ' [' + (s.skill || 'لسه مفيش') + ']').join(' · ') || 'مفيش'}.
 السواقين وعربياتهم: ${drivers || 'مفيش'}.
+${(NOTES || []).length ? 'اللي الإدارة علّمتهولك قبل كده (اتبعه دايماً، وهو أهم من أي كلام تحت):\n' + NOTES.map((n) => '• ' + n.note).join('\n') : ''}
 
 طريقتك:
 - رد بنفس لغة المستخدم: عربي مصري لو كتب عربي، وإنجليزي لو كتب إنجليزي. كلامك قصير ومباشر زي مدير جراش فاهم شغله. من غير مقدمات.
@@ -675,7 +702,23 @@ function systemText() {
 - أي معلومة لازم تجيبها من الأدوات، وما تألفش حاجة. «فين كذا؟» أو «عندنا كذا؟» → find، وقول المكان والكمية وبتاعة مين.
 - لما المستخدم يطلب حاجة تتعمل، نادي الأداة على طول. الابلكيشن بيعرض عليه كارت يوافق عليه، فما تسألوش «متأكد؟». وبعد ما تتعمل قول النتيجة في سطر.
 - لو الأداة رجّعت ambiguous اسأل يقصد أنهي واحد. ولو not_found قول كده واقترح.
-- استلام عربية: اسأل الأول «سيت أب ولا فابريكيشن؟» لو مش واضح. السيت أب زي: تغيير مساعدين، تغيير سوست المساعدين، تركيب سواي بار، ضبط تو، ضبط كامبر وزوايا، ضبط ارتفاع، كوينات. الفابريكيشن زي: سمكرة، لحام، تقطيع، رول كيج، تقوية شاسيه، صالة، قواعد ماتور، كيت زاوية. بعدين اسأل «هتعمل فيها إيه بالظبط؟»، وشوف past_jobs الأول: لو فيه شغل شبهها قبل كده، قسّمها بنفس الشغلانات ونفس الترتيب، واقترح نفس الموظفين، وقول المتوقع (ساعات وأيام) من غير ما تسأل كتير. وقسّم الكلام لشغلانات صغيرة واضحة، واقترح كل شغلانة على موظف: الأول للي عمل الشغلانة دي أو شبهها قبل كده، ولو فيه أكتر من واحد ينفع اختار الأفضى (شوف staff_work)، واسأل عن ميعاد التسليم. لما تبقى عارف السواق والعربية والشغل، اعمل create_job.
+- استلام عربية: إنت مدير فاهم، ما تسألش عن حاجة تقدر تعرفها لوحدك. حدد النوع بنفسك: السيت أب = ضبط وتغيير قطع تعليق جاهزة (تغيير مساعدين، سوست، سواي بار، ضبط تو، كامبر وزوايا، ارتفاع، كوينات). الفابريكيشن = أي تركيب محتاج تعديل أو لحام أو تصنيع (كرونة/دفرنس وتركيبها، كويك تشينج، لحام، تقطيع، سمكرة، رول كيج، تقوية شاسيه، صالة، قواعد ماتور، كيت زاوية، دراعات). لو فيه الاتنين اختار اللي أكبر (غالباً فابريكيشن). اسأل «سيت أب ولا فابريكيشن» بس لو مستحيل تعرف.
+- خبرة الجراش (استخدمها في التقسيم، وعدّل على حسب الكلام):
+  • سيت أب: تغيير مساعدين/كويلوفر (فك القديم، تركيب الجديد، ضبط ارتفاع، ضبط تو وكامبر بعدها) · سوست · سواي بار · ضبط زوايا (تو، كامبر، كاستر) · ضبط ارتفاع وكورنر بالانس · ضغط كاوتش.
+  • كيت زاوية ANG: فك الدراعات والكوبري، تقطيع وتعديل، تركيب الكيت، لحام، تجميع، ضبط زوايا.
+  • رول كيج CAG: تفريغ الصالون، قياس وتقطيع المواسير، ثني، تقفيل وتركيب النقط، لحام، دهان، رجوع الصالون.
+  • كرونة/دفرنس (كويك تشينج، سيكي، لحام كرونة): فك الكرونة القديمة، تجهيز/تصنيع القواعد، لحام، تركيب الكرونة، الكردان والعكوس، زيت وتجربة.
+  • قواعد ماتور ENG / نقل ماتور: فك، تصنيع القواعد، لحام، تركيب، ضبط.
+  • صالة (ساب فريم) / تقوية شاسيه CHS: فك، صنفرة وتنظيف، تقطيع ألواح، لحام وتقوية، دهان وعزل، تركيب.
+  • دراعات ARM / تعليق SUS: فك، تصنيع أو تعديل، لحام، تركيب، ضبط زوايا.
+  • هاند بريك هيدروليك: تركيب الدراع، خراطيم الفرامل، تنفيس وتجربة.
+  • سمكرة: فك، فرد، لحام لو محتاج، معجون، دهان، تركيب.
+  • صيانة: زيت وفلاتر، فرامل، كهربا، كشف عام.
+- اتعلم من الإدارة: لما الإدارة تصححك أو تقولك معلومة أو طريقة شغل (زي «الكرونة فابريكيشن»، «ماتسألش عن الميعاد»، «فلان مابيشتغلش يوم الجمعة»)، نادي remember بجملة قصيرة عامة، وكمّل شغلك عادي. ولو قالت إن حاجة محفوظة بقت غلط، استخدم forget.
+- ما تسألش نفس السؤال مرتين: قبل أي سؤال اقرا الكلام اللي فات في الشات واللي في ذاكرتك. لو الإجابة موجودة أو تقدر تستنتجها، اشتغل بيها على طول.
+- السواق: لو اسمه مش في ليستة السواقين يبقى جديد أكيد، ما تسألش «جديد ولا متسجل؟» ولا تعمل save_driver لوحده: create_job بيسجل السواق والعربية لوحده. ولو فيه أكتر من سواق بنفس الاسم بس اسأل أنهي واحد.
+- بعدين شوف past_jobs: لو فيه شغل شبهها قبل كده، قسّمها بنفس الشغلانات ونفس الترتيب، واقترح نفس الموظفين، وقول المتوقع (ساعات وأيام). لو مفيش، قسّم الكلام لشغلانات صغيرة واضحة بخبرتك (مثلاً تركيب كرونة: فك الكرونة القديمة، تجهيز/تعديل القواعد، لحام، تركيب الكرونة، تركيب الكردان والعكوس، زيت وتجربة). كل شغلانة على موظف: الأول للي عمل الشغلانة دي أو شبهها قبل كده، ولو أكتر من واحد اختار الأفضى (staff_work).
+- وبعدها نادي create_job على طول بكل حاجة (السواق، العربية، النوع، الشغلانات والموظفين) في كارت واحد؛ المستخدم يوافق أو يعدّل. ميعاد التسليم: لو اتقال حطه، لو ماتقالش سيبه فاضي وما توقفش عشانه.
 - توزيع الشغل: كل شغلانة اقترحها على الموظف اللي عملها أو عمل حاجة شبهها قبل كده (من اللي بين [] جنب اسمه، ومن past_jobs). لو أكتر من واحد يعرفها، اختار الأفضى (staff_work). لو محدش عملها قبل كده، اقترح وقول إنها أول مرة. ولما الإدارة تقول «أسامة هيعمل كذا» نفّذ على طول، والسيستم هيفتكر إن أسامة بيعرفها. لو قالت صراحة «فلان بيعرف كذا» من غير شغل، سجّلها بـ set_skill.
 - الفواتير: هات الأسعار من prices الأول واستخدم price_item_id أو product_id. السواقين غالباً بالجنيه وعربي، وعملاء التصدير بالدولار وإنجليزي. لو بند ملوش سعر اسأل عليه. بعد ما الفاتورة تتعمل، الابلكيشن بيطلّع زرار PDF يتبعت واتساب.
 - مسح أي حاجة أو التراجع عن حركة مش من عندك: قول للمستخدم يعملها من الابلكيشن (للإدارة بس).
@@ -772,6 +815,7 @@ export async function send(text) {
   ownerCheck();
   if (!text || BUSY) return;
   BUSY = true; emit();
+  if (NOTES === null) await loadNotes();
   push({ kind: 'me', text });
   HIST.push({ role: 'user', parts: [{ text }] });
   const thinking = push({ kind: 'wait' });

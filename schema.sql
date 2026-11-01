@@ -2364,3 +2364,39 @@ update public.staff e set skill = left(concat_ws('، ', nullif(e.skill, ''), x.t
   from (select l.staff_id, string_agg(distinct trim(l.title), '، ') t from public.job_lines l
          where l.kind = 'task' and l.staff_id is not null and trim(l.title) <> '' group by l.staff_id) x
  where x.staff_id = e.id and e.skill = '';
+
+-- v19: ذاكرة المدير — اللي الإدارة بتعلّمهوله بيتحفظ ويشتغل بيه مع الكل
+create table if not exists public.ai_notes (
+  id uuid primary key default gen_random_uuid(),
+  note text not null,
+  created_by text not null default '',
+  created_at timestamptz not null default now()
+);
+alter table public.ai_notes enable row level security;
+revoke all on public.ai_notes from anon, authenticated;
+
+create or replace function public.ai_notes_list(p_token text)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  return coalesce((select jsonb_agg(jsonb_build_object('id', id, 'note', note) order by created_at) from public.ai_notes), '[]'::jsonb);
+end $$;
+
+create or replace function public.ai_note_add(p_token text, p_note text)
+returns uuid language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token); v uuid; t text := left(trim(coalesce(p_note, '')), 500);
+begin
+  if a->>'kind' <> 'admin' then raise exception 'admin_only'; end if;
+  if t = '' then raise exception 'empty'; end if;
+  if (select count(*) from public.ai_notes) >= 300 then raise exception 'too_many'; end if;
+  insert into public.ai_notes (note, created_by) values (t, coalesce(a->>'name', '')) returning id into v;
+  return v;
+end $$;
+
+create or replace function public.ai_note_del(p_token text, p_id uuid)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  if a->>'kind' <> 'admin' then raise exception 'admin_only'; end if;
+  delete from public.ai_notes where id = p_id;
+end $$;
