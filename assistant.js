@@ -1,22 +1,22 @@
 /* assistant.js — «المدير»: مساعد بتكلمه عربي أو إنجليزي، بيرد من بيانات السيستم وبيعمل الحاجات بعد ما توافق
    الذكاء من Gemini (مجاني) عن طريق Supabase Edge Function اسمها ai — المفتاح هناك مش هنا.
    ولو الذكاء مش متاح، الزراير اللي تحت والبحث العادي شغالين. */
-import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=26';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=26';
-import { sb, call, errText, staffSession } from './api.js?v=26';
-import { useStore, getStore, reload, canInvoice } from './store.js?v=26';
-import * as L from './lib.js?v=26';
-import { ItemSheet, startNewItem, InstallForm } from './items.js?v=26';
-import { DriverSheet } from './drivers.js?v=26';
-import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=26';
-import { TripSheet, TripForm } from './trips.js?v=26';
-import { ShipmentSheet, ShipmentForm } from './export.js?v=26';
-import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=26';
-import { FileReady } from './stickers.js?v=26';
-import { CATS, PurchasesSheet } from './purchases.js?v=26';
-import { LogSheet } from './log.js?v=26';
-import { scanOpen } from './home.js?v=26';
-import { prepReceipt, uploadReceipt, expensesIn, analyze, monthReport, monthPdf, closeMonth, egp, monthOf, lastMonth, monthName, carOf } from './money.js?v=26';
+import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=27';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=27';
+import { sb, call, errText, staffSession } from './api.js?v=27';
+import { useStore, getStore, reload, canInvoice } from './store.js?v=27';
+import * as L from './lib.js?v=27';
+import { ItemSheet, startNewItem, InstallForm } from './items.js?v=27';
+import { DriverSheet } from './drivers.js?v=27';
+import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=27';
+import { TripSheet, TripForm } from './trips.js?v=27';
+import { ShipmentSheet, ShipmentForm } from './export.js?v=27';
+import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=27';
+import { FileReady } from './stickers.js?v=27';
+import { CATS, PurchasesSheet } from './purchases.js?v=27';
+import { LogSheet } from './log.js?v=27';
+import { scanOpen } from './home.js?v=27';
+import { prepReceipt, uploadReceipt, expensesIn, analyze, monthReport, monthPdf, closeMonth, egp, monthOf, lastMonth, monthName, carOf } from './money.js?v=27';
 
 /* ============================================================ أدوات صغيرة */
 const st = () => getStore();
@@ -1125,7 +1125,9 @@ function ownerCheck() {
 function patch(id, p) { MSGS = MSGS.map((m) => (m.id === id ? { ...m, ...p } : m)); emit(); }
 
 // ترتيب موديلات Gemini (الأسرع الأول). السيرفر بيجرب اللي بعده لو واحد مش متاح.
-const AI_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-flash-lite-latest'];
+// أذكى موديل مجاني الأول (gemini-3.8-flash)، ولو بطيء أو مش متاح السيرفر بيجرب اللي بعده.
+// (لو اتحط مفتاح Claude على السيرفر بعدين، الموديل بيتحدد من CLAUDE_MODEL)
+const AI_MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
 export async function fnCall(body, ms = 30000) {
   let auth = 'Bearer ' + SUPABASE_KEY;
   try { const { data } = await sb.auth.getSession(); if (data && data.session) auth = 'Bearer ' + data.session.access_token; } catch (e) { /* موظف */ }
@@ -1155,6 +1157,8 @@ const AI_ERR = {
   quota: 'خلصت رسايل الـ AI المجانية النهارده. الزراير والبحث شغالين، والـ AI بيرجع بكرة.',
   no_key: 'المساعد لسه متوصلش بمفتاح Gemini (Supabase ← Edge Functions ← Secrets).',
   unauthorized: 'الجلسة انتهت، اخرج وادخل تاني.',
+  bad_key: 'مفتاح Claude اللي في Supabase غلط.',
+  no_credit: 'رصيد Claude خلص. اشحن من console.anthropic.com.',
 };
 const aiErrText = (e) => {
   const m = (e && e.message) || '';

@@ -1,10 +1,12 @@
 // AF Parts — المساعد (Supabase Edge Function اسمها ai)
 // بتاخد الكلام من الابلكيشن، تتأكد إن اللي بيكلمها داخل بحسابه، وتبعته لـ Gemini بالمفتاح السري.
 // المفتاح محطوط في Supabase (Edge Functions ← Secrets) باسم GEMINI_API_KEY، ومش موجود في الابلكيشن.
+// v27: لو مفتاح Claude (ANTHROPIC_API_KEY) موجود في Secrets، المدير بيشتغل بـ Claude بدل Gemini.
 // v25: الخطوات المستنية اللي قبلها مش بتتبعت لحد ما دورها ييجي، و«دورك» بيوصل بإشعار (notify turn_job).
 // v20: كمان بتصحى كل ساعة (action: tick) تبعت لكل موظف شغله، وتسأله خلص إيه، وتبعت للإدارة ملخص.
 //      وبتجيب مين حاضر النهارده من ابلكيشن الحضور (action: present).
 import webpush from 'npm:web-push@3.6.7';
+import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -48,7 +50,9 @@ async function handle(req: Request): Promise<Response> {
   if (body.action === 'notify') return json(await notify(body, await who.json()));
   if (body.action === 'vapid') { const S = await secrets(); await vapid(S); return json({ key: S.vapid_public }); }
 
-  // 2) نبعت لـ Gemini
+  // 2) Claude لو مفتاحه موجود، وإلا Gemini
+  const CKEY = Deno.env.get('ANTHROPIC_API_KEY');
+  if (CKEY) return await askClaude(CKEY, body);
   const KEY = Deno.env.get('GEMINI_API_KEY');
   if (!KEY) return json({ error: 'no_key' }, 500);
   const payload = {
@@ -81,6 +85,81 @@ async function handle(req: Request): Promise<Response> {
     if (r.status === 400 || r.status === 403) break; // الطلب نفسه غلط أو المفتاح غلط: مفيش لازمة نجرب موديل تاني
   }
   return json({ error: /\b429\b/.test(last) ? 'quota' : 'ai_failed', detail: last }, 502);
+}
+
+// =====================================================================
+// v27: Claude — الابلكيشن بيبعت الكلام بشكل Gemini (contents/parts)، وإحنا بنحوّله لـ Claude ونرجّعه بنفس الشكل
+// =====================================================================
+const CLAUDE_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'];
+function toClaude(contents: any[]) {
+  const out: any[] = [];
+  let pending: string[] = []; // ids الأدوات اللي لسه مستنية نتيجتها (للكلام القديم اللي من غير id)
+  let n = 0;
+  for (const m of contents || []) {
+    const role = m.role === 'model' ? 'assistant' : 'user';
+    const blocks: any[] = [];
+    if (role === 'assistant') pending = [];
+    for (const p of m.parts || []) {
+      if (p.thought) { if (p.cb) blocks.push(p.cb); continue; }
+      if (p.functionCall) {
+        const id = p.functionCall.id || ('toolu_af' + (n++));
+        pending.push(id);
+        blocks.push({ type: 'tool_use', id, name: p.functionCall.name, input: p.functionCall.args || {} });
+      } else if (p.functionResponse) {
+        const r = p.functionResponse;
+        let id = r.id;
+        if (id) pending = pending.filter((x) => x !== id); else id = pending.shift() || ('toolu_af' + (n++));
+        const res = r.response && 'result' in r.response ? r.response.result : r.response;
+        blocks.push({ type: 'tool_result', tool_use_id: id, content: JSON.stringify(res ?? null).slice(0, 60000) });
+      } else if (p.inlineData) {
+        blocks.push({ type: 'image', source: { type: 'base64', media_type: p.inlineData.mimeType || 'image/jpeg', data: p.inlineData.data } });
+      } else if (typeof p.text === 'string' && p.text.trim()) {
+        blocks.push({ type: 'text', text: p.text });
+      }
+    }
+    if (!blocks.length) blocks.push({ type: 'text', text: '...' });
+    const last = out[out.length - 1];
+    if (last && last.role === role) last.content.push(...blocks); else out.push({ role, content: blocks });
+  }
+  while (out.length && out[0].role !== 'user') out.shift();
+  return out;
+}
+function fromClaude(r: any) {
+  const parts: any[] = [];
+  for (const b of r.content || []) {
+    if (b.type === 'text') parts.push({ text: b.text });
+    else if (b.type === 'tool_use') parts.push({ functionCall: { id: b.id, name: b.name, args: b.input || {} } });
+    else parts.push({ thought: true, cb: b }); // thinking وغيره: بيرجع زي ما هو في الطلب الجاي
+  }
+  if (r.stop_reason === 'refusal') parts.push({ text: 'معلش، مش هقدر أرد على ده.' });
+  return { role: 'model', parts };
+}
+async function askClaude(key: string, body: any): Promise<Response> {
+  const client = new Anthropic({ apiKey: key, timeout: 100000, maxRetries: 1 });
+  const want = Array.isArray(body.models) ? body.models.find((m: unknown) => typeof m === 'string' && CLAUDE_MODELS.includes(m)) : null;
+  const model = want || Deno.env.get('CLAUDE_MODEL') || CLAUDE_MODELS[0];
+  const tools = (body.tools || []).map((t: any) => ({
+    name: t.name, description: String(t.description || '').slice(0, 4000),
+    input_schema: t.parameters && t.parameters.type === 'object' ? t.parameters : { type: 'object', properties: {} },
+  }));
+  if (tools.length) tools[tools.length - 1].cache_control = { type: 'ephemeral' }; // الأدوات ثابتة: تتخزن وتبقى أرخص
+  try {
+    const r: any = await client.beta.messages.create({
+      model, max_tokens: 16000,
+      system: body.system ? String(body.system) : undefined,
+      messages: toClaude(body.contents || []),
+      tools: tools.length ? tools : undefined,
+      thinking: { type: 'adaptive', block_binding: { prefix_mismatch_behavior: 'drop_block' } },
+      output_config: { effort: model === 'claude-opus-5-5' ? 'medium' : 'low' },
+      ...(model === 'claude-haiku-5-5' ? {} : { fallbacks: 'default' }),
+      betas: ['thinking-binding-controls-2026-08-01', ...(model === 'claude-haiku-5-5' ? [] : ['server-side-fallback-2026-07-01'])],
+    } as any);
+    return json({ model: r.model || model, content: fromClaude(r), finish: r.stop_reason });
+  } catch (e: any) {
+    const st = e && e.status;
+    const detail = (st ? st + ' ' : '') + String((e && e.message) || e).slice(0, 300);
+    return json({ error: st === 429 ? 'quota' : st === 401 ? 'bad_key' : /credit|billing/i.test(detail) ? 'no_credit' : 'ai_failed', detail }, 502);
+  }
 }
 
 // =====================================================================

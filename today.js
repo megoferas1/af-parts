@@ -1,11 +1,11 @@
 /* today.js — «شغلي النهارده» للموظف، و«خطة الأيام» للإدارة، وزرار الإشعارات */
-import { html, useState, useEffect, Icon, Sheet, Empty, Pill, toast } from './ui.js?v=26';
-import { call, errText } from './api.js?v=26';
-import { useStore } from './store.js?v=26';
-import * as L from './lib.js?v=26';
-import { run } from './items.js?v=26';
-import { isOpenJob } from './jobs.js?v=26';
-import { pushState, enablePush, needsInstallOnIOS } from './push.js?v=26';
+import { html, useState, useEffect, Icon, Sheet, Empty, Pill, toast } from './ui.js?v=27';
+import { call, errText } from './api.js?v=27';
+import { useStore } from './store.js?v=27';
+import * as L from './lib.js?v=27';
+import { run } from './items.js?v=27';
+import { isOpenJob } from './jobs.js?v=27';
+import { pushState, enablePush, needsInstallOnIOS } from './push.js?v=27';
 
 const DAYS = ['الحد', 'الاتنين', 'التلات', 'الأربع', 'الخميس', 'الجمعة', 'السبت'];
 export const dayName = (d) => { const t = L.todayStr(); if (d === t) return 'النهارده'; if (d === L.addDays(t, 1)) return 'بكرة'; return DAYS[new Date(d + 'T12:00:00').getDay()] + ' ' + d.slice(8) + '/' + d.slice(5, 7); };
@@ -33,7 +33,7 @@ function MyStep({ l, n, of, wait, j }) {
   async function done() {
     setBusy(true);
     const r = await run(() => call('job_line_done', { p_id: l.id, p_done: true }), 'برافو ✓');
-    if (r.ok) import('./assistant.js?v=26').then((m) => m.turnNotify(j.id)).catch(() => {});
+    if (r.ok) import('./assistant.js?v=27').then((m) => m.turnNotify(j.id)).catch(() => {});
     setBusy(false);
   }
   return html`<div class=${'step' + (wait ? '' : ' now')}>

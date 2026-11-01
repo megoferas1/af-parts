@@ -1,20 +1,20 @@
 /* home.js — الرئيسية + السكان العام + البحث */
-import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=26';
-import { call, errText } from './api.js?v=26';
-import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=26';
-import * as L from './lib.js?v=26';
-import { ItemRow, ItemSheet, startNewItem } from './items.js?v=26';
-import { ScanSheet } from './qr.js?v=26';
-import { UnitSheet } from './units.js?v=26';
-import { TripCard } from './trips.js?v=26';
-import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=26';
-import { BlankStickersSheet } from './stickers.js?v=26';
-import { PurchasesSheet } from './purchases.js?v=26';
-import { LogSheet } from './log.js?v=26';
-import { AdminSheet } from './admin.js?v=26';
-import { isOpenJob, isLate } from './jobs.js?v=26';
-import { openAssistant, useInbox } from './assistant.js?v=26';
-import { TodaySheet, PushCard, openTasks } from './today.js?v=26';
+import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=27';
+import { call, errText } from './api.js?v=27';
+import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=27';
+import * as L from './lib.js?v=27';
+import { ItemRow, ItemSheet, startNewItem } from './items.js?v=27';
+import { ScanSheet } from './qr.js?v=27';
+import { UnitSheet } from './units.js?v=27';
+import { TripCard } from './trips.js?v=27';
+import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=27';
+import { BlankStickersSheet } from './stickers.js?v=27';
+import { PurchasesSheet } from './purchases.js?v=27';
+import { LogSheet } from './log.js?v=27';
+import { AdminSheet } from './admin.js?v=27';
+import { isOpenJob, isLate } from './jobs.js?v=27';
+import { openAssistant, useInbox } from './assistant.js?v=27';
+import { TodaySheet, PushCard, openTasks } from './today.js?v=27';
 
 /* السكان العام: يفتح الحاجة، أو يسجّل استيكر فاضي */
 export function scanOpen() {

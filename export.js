@@ -1,14 +1,14 @@
 /* export.js — التصدير: المنتجات، الشحنات، العملاء */
-import { html, useState, useMemo, Icon, Pill, Empty, Field, Chips, Stepper, SearchBox, Segmented, Sheet, Hero, openSheet, toast, confirmBox } from './ui.js?v=26';
-import { call, errText } from './api.js?v=26';
-import { useStore, getStore, reload, ownerText, canInvoice } from './store.js?v=26';
-import { InvoiceForm, invoiceFromShipment } from './invoices.js?v=26';
-import * as L from './lib.js?v=26';
-import { ItemRow, ItemPicker, startNewItem, groupBy, run } from './items.js?v=26';
-import { StickerSheet, labelFor, FileReady } from './stickers.js?v=26';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=26';
-import { ScanSheet } from './qr.js?v=26';
-import { HeroScan } from './home.js?v=26';
+import { html, useState, useMemo, Icon, Pill, Empty, Field, Chips, Stepper, SearchBox, Segmented, Sheet, Hero, openSheet, toast, confirmBox } from './ui.js?v=27';
+import { call, errText } from './api.js?v=27';
+import { useStore, getStore, reload, ownerText, canInvoice } from './store.js?v=27';
+import { InvoiceForm, invoiceFromShipment } from './invoices.js?v=27';
+import * as L from './lib.js?v=27';
+import { ItemRow, ItemPicker, startNewItem, groupBy, run } from './items.js?v=27';
+import { StickerSheet, labelFor, FileReady } from './stickers.js?v=27';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=27';
+import { ScanSheet } from './qr.js?v=27';
+import { HeroScan } from './home.js?v=27';
 
 export function ExportTab() {
   const { idx, data } = useStore();
