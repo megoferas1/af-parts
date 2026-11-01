@@ -1,21 +1,21 @@
 /* assistant.js — «المدير»: مساعد بتكلمه عربي أو إنجليزي، بيرد من بيانات السيستم وبيعمل الحاجات بعد ما توافق
    الذكاء من Gemini (مجاني) عن طريق Supabase Edge Function اسمها ai — المفتاح هناك مش هنا.
    ولو الذكاء مش متاح، الزراير اللي تحت والبحث العادي شغالين. */
-import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=21';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=21';
-import { sb, call, errText, staffSession } from './api.js?v=21';
-import { useStore, getStore, reload, canInvoice } from './store.js?v=21';
-import * as L from './lib.js?v=21';
-import { ItemSheet, startNewItem, InstallForm } from './items.js?v=21';
-import { DriverSheet } from './drivers.js?v=21';
-import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=21';
-import { TripSheet, TripForm } from './trips.js?v=21';
-import { ShipmentSheet, ShipmentForm } from './export.js?v=21';
-import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=21';
-import { FileReady } from './stickers.js?v=21';
-import { LogSheet } from './log.js?v=21';
-import { scanOpen } from './home.js?v=21';
-import { prepReceipt, uploadReceipt, expensesIn, analyze, monthReport, monthPdf, closeMonth, egp, monthOf, lastMonth, monthName, carOf } from './money.js?v=21';
+import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=22';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=22';
+import { sb, call, errText, staffSession } from './api.js?v=22';
+import { useStore, getStore, reload, canInvoice } from './store.js?v=22';
+import * as L from './lib.js?v=22';
+import { ItemSheet, startNewItem, InstallForm } from './items.js?v=22';
+import { DriverSheet } from './drivers.js?v=22';
+import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=22';
+import { TripSheet, TripForm } from './trips.js?v=22';
+import { ShipmentSheet, ShipmentForm } from './export.js?v=22';
+import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=22';
+import { FileReady } from './stickers.js?v=22';
+import { LogSheet } from './log.js?v=22';
+import { scanOpen } from './home.js?v=22';
+import { prepReceipt, uploadReceipt, expensesIn, analyze, monthReport, monthPdf, closeMonth, egp, monthOf, lastMonth, monthName, carOf } from './money.js?v=22';
 
 /* ============================================================ أدوات صغيرة */
 const st = () => getStore();

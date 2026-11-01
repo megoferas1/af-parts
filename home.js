@@ -1,19 +1,19 @@
 /* home.js — الرئيسية + السكان العام + البحث */
-import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=21';
-import { call, errText } from './api.js?v=21';
-import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=21';
-import * as L from './lib.js?v=21';
-import { ItemRow, ItemSheet, startNewItem } from './items.js?v=21';
-import { ScanSheet } from './qr.js?v=21';
-import { UnitSheet } from './units.js?v=21';
-import { TripCard } from './trips.js?v=21';
-import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=21';
-import { BlankStickersSheet } from './stickers.js?v=21';
-import { LogSheet } from './log.js?v=21';
-import { AdminSheet } from './admin.js?v=21';
-import { isOpenJob, isLate } from './jobs.js?v=21';
-import { openAssistant, useInbox } from './assistant.js?v=21';
-import { TodaySheet, PushCard, openTasks } from './today.js?v=21';
+import { html, useState, useMemo, Icon, Empty, SearchBox, SecTitle, Sheet, Hero, openSheet, confirmBox } from './ui.js?v=22';
+import { call, errText } from './api.js?v=22';
+import { useStore, getStore, isAdmin, canInvoice } from './store.js?v=22';
+import * as L from './lib.js?v=22';
+import { ItemRow, ItemSheet, startNewItem } from './items.js?v=22';
+import { ScanSheet } from './qr.js?v=22';
+import { UnitSheet } from './units.js?v=22';
+import { TripCard } from './trips.js?v=22';
+import { DriverSheet, DriverPartsSheet, GaragePartsSheet } from './drivers.js?v=22';
+import { BlankStickersSheet } from './stickers.js?v=22';
+import { LogSheet } from './log.js?v=22';
+import { AdminSheet } from './admin.js?v=22';
+import { isOpenJob, isLate } from './jobs.js?v=22';
+import { openAssistant, useInbox } from './assistant.js?v=22';
+import { TodaySheet, PushCard, openTasks } from './today.js?v=22';
 
 /* السكان العام: يفتح الحاجة، أو يسجّل استيكر فاضي */
 export function scanOpen() {

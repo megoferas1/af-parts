@@ -1,14 +1,14 @@
 /* jobs.js — شغل العربيات: كل عربية داخلة الجراش ليها أمر شغل
    الحالة، الشغل المطلوب، المسؤول، الساعات، الخامات، القطع اللي اتركبت، صور قبل وبعد، والفاتورة منه بدوسة */
-import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=21';
-import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=21';
-import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=21';
-import * as L from './lib.js?v=21';
-import { run, ItemRow, InstallForm } from './items.js?v=21';
-import { DriverForm, CarForm } from './drivers.js?v=21';
-import { InvoiceForm, InvoiceSheet } from './invoices.js?v=21';
-import { HeroScan } from './home.js?v=21';
-import { ScanSheet } from './qr.js?v=21';
+import { html, useState, useEffect, useMemo, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=22';
+import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=22';
+import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=22';
+import * as L from './lib.js?v=22';
+import { run, ItemRow, InstallForm } from './items.js?v=22';
+import { DriverForm, CarForm } from './drivers.js?v=22';
+import { InvoiceForm, InvoiceSheet } from './invoices.js?v=22';
+import { HeroScan } from './home.js?v=22';
+import { ScanSheet } from './qr.js?v=22';
 
 export const JOB_ST = {
   received: { label: 'استلمناها', tone: 'gray', icon: 'clip', sub: 'العربية دخلت الجراش ولسه ما بدأناش' },

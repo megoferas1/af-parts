@@ -1,7 +1,10 @@
 /* push.js — إشعارات الموبايل (المدير بيبعت لكل موظف شغله وبيسأله خلص إيه) */
-import { call } from './api.js?v=21';
+import { call } from './api.js?v=22';
+import { fnCall } from './assistant.js?v=22';
 
-export const VAPID_PUBLIC_KEY = 'BAppFXkCF1j_t2ouZUNnVYl1MFq88_qAMB2FsnwBdz8xPaavxNnLi8KOypIeRNlOulPqBLoVrDPg54vDBZ-kU9E';
+// مفتاح الإشعارات العام بيتعمل على السيرفر أول مرة ويتحفظ هناك
+let VKEY = null;
+async function vapidKey() { if (!VKEY) VKEY = (await fnCall({ action: 'vapid' })).key; return VKEY; }
 
 const toU8 = (b64) => {
   const pad = '='.repeat((4 - (b64.length % 4)) % 4);
@@ -40,7 +43,7 @@ export async function enablePush() {
   try { await navigator.serviceWorker.register('sw.js'); } catch (e) { /* موجود */ }
   const reg = await navigator.serviceWorker.ready;
   let sub = await reg.pushManager.getSubscription();
-  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: toU8(VAPID_PUBLIC_KEY) });
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: toU8(await vapidKey()) });
   await save(sub);
 }
 
