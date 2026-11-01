@@ -2794,8 +2794,8 @@ begin
   select coalesce(max(sort), 0) into s from public.job_lines where job_id = p_job and kind = 'task';
   for x in select * from jsonb_array_elements(coalesce(p_steps, '[]'::jsonb)) loop
     if coalesce(trim(x->>'title'), '') = '' then continue; end if;
-    -- نفس الخطوة موجودة ولسه ما خلصتش: ما تتكررش
-    if exists (select 1 from public.job_lines where job_id = p_job and kind = 'task' and not done and title = left(trim(x->>'title'), 300)
+    -- نفس الخطوة موجودة (لسه ما خلصتش، أو خلصت وجاية تاني كخلصانة): ما تتكررش
+    if exists (select 1 from public.job_lines where job_id = p_job and kind = 'task' and (not done or coalesce((x->>'done')::boolean, false)) and title = left(trim(x->>'title'), 300)
                and not (id::text in (select jsonb_array_elements_text(case when jsonb_typeof(p_remove) = 'array' then p_remove else '[]'::jsonb end)))) then continue; end if;
     st := nullif(x->>'staff_id', '')::uuid;
     if st is not null and not exists (select 1 from public.staff where id = st and active) then st := null; end if;

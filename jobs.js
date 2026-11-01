@@ -1,16 +1,16 @@
 /* jobs.js — شغل العربيات: كل عربية داخلة الجراش ليها أمر شغل
    الحالة، الشغل المطلوب، المسؤول، الساعات، الخامات، القطع اللي اتركبت، صور قبل وبعد، والفاتورة منه بدوسة */
-import { html, useState, useEffect, useMemo, Stepper, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=25';
-import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=25';
-import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=25';
-import * as L from './lib.js?v=25';
-import { run, ItemRow, InstallForm } from './items.js?v=25';
-import { DriverForm, CarForm } from './drivers.js?v=25';
-import { InvoiceForm, InvoiceSheet } from './invoices.js?v=25';
-import { HeroScan } from './home.js?v=25';
-import { ScanSheet } from './qr.js?v=25';
-import { ProduceSheet } from './units.js?v=25';
-import { JobPurchases } from './purchases.js?v=25';
+import { html, useState, useEffect, useMemo, Stepper, Icon, Pill, Empty, Spinner, Field, Chips, SearchBox, Segmented, Sheet, Hero, SecTitle, openSheet, toast, confirmBox, NumInput } from './ui.js?v=26';
+import { call, errText, photoUrl, uploadJobPhoto, removePhotoFile } from './api.js?v=26';
+import { useStore, getStore, reload, isAdmin, canInvoice } from './store.js?v=26';
+import * as L from './lib.js?v=26';
+import { run, ItemRow, InstallForm } from './items.js?v=26';
+import { DriverForm, CarForm } from './drivers.js?v=26';
+import { InvoiceForm, InvoiceSheet } from './invoices.js?v=26';
+import { HeroScan } from './home.js?v=26';
+import { ScanSheet } from './qr.js?v=26';
+import { ProduceSheet } from './units.js?v=26';
+import { JobPurchases } from './purchases.js?v=26';
 
 export const JOB_ST = {
   received: { label: 'استلمناها', tone: 'gray', icon: 'clip', sub: 'العربية دخلت الجراش ولسه ما بدأناش' },
@@ -251,7 +251,7 @@ export function JobSheet({ id, close }) {
   }
   async function toggle(l) {
     const r = await run(() => call('job_line_done', { p_id: l.id, p_done: !l.done }));
-    if (r.ok && !l.done) import('./assistant.js?v=25').then((m) => m.turnNotify(j.id)).catch(() => {});
+    if (r.ok && !l.done) import('./assistant.js?v=26').then((m) => m.turnNotify(j.id)).catch(() => {});
   }
   const nextStep = tasks.find((l) => !l.done && !l.waiting);
   async function addTask(title) {

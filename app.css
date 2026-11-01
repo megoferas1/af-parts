@@ -651,10 +651,13 @@ input[type=date].input::-webkit-datetime-edit { padding: 0; }
 .task-main small.who { color: var(--ink2); font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
 .task-main small.who.none { color: var(--faint); font-weight: 600; }
 /* v21: رسايل المدير + صورة الفاتورة */
-.ai-msg.boss { border: 1.5px solid var(--line); background: #fff; }
+.ai-msg.boss { border: 1.5px solid var(--line); background: #fff; white-space: normal; }
+.ai-msg.boss > div:not(.boss-tasks) { white-space: pre-wrap; }
 .boss-h { display: flex; align-items: center; gap: 5px; color: var(--mute); font-weight: 700; margin-bottom: 4px; }
 .boss-tasks { display: grid; gap: 6px; margin-top: 8px; white-space: normal; }
-.boss-task { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-top: 1px solid var(--line); }
+.boss-task { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0; border-top: 1px solid var(--line); }
+.boss-task > .grow { flex: 1 1 100%; min-width: 0; }
+.boss-task > .btn { width: auto; flex: 1 1 0; }
 .boss-task .done { text-decoration: line-through; color: var(--mute); }
 .boss-task .btn.sm { min-height: 34px; padding: 0 12px; }
 .boss-task .ok { color: var(--green, #1a8f4c); font-size: 13.5px; }
