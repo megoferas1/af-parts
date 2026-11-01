@@ -1,6 +1,6 @@
 /* docs.js — كشوفات PDF و Excel واستيكرات الـ QR (من غير سيرفر) */
-import { loadScript } from './api.js?v=17';
-import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=17';
+import { loadScript } from './api.js?v=18';
+import { loadQrGen, qrDataUrl, qrText } from './qr.js?v=18';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const FONT = 'Tajawal';

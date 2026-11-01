@@ -1,13 +1,13 @@
 /* drivers.js — السواقين وعربياتهم وقطعهم */
-import { html, useState, useMemo, Icon, Empty, Spinner, Field, Chips, SearchBox, Act, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=17';
-import { call, errText } from './api.js?v=17';
-import { useStore, reload } from './store.js?v=17';
-import * as L from './lib.js?v=17';
-import { ItemRow, ItemSheet, startNewItem, run, groupBy } from './items.js?v=17';
-import { PickStickersSheet, FileReady } from './stickers.js?v=17';
-import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=17';
-import { HeroScan } from './home.js?v=17';
-import { JobCard, JobForm, CarJobsSheet, isOpenJob } from './jobs.js?v=17';
+import { html, useState, useMemo, Icon, Empty, Spinner, Field, Chips, SearchBox, Act, Sheet, SecTitle, Hero, openSheet, toast, confirmBox } from './ui.js?v=18';
+import { call, errText } from './api.js?v=18';
+import { useStore, reload } from './store.js?v=18';
+import * as L from './lib.js?v=18';
+import { ItemRow, ItemSheet, startNewItem, run, groupBy } from './items.js?v=18';
+import { PickStickersSheet, FileReady } from './stickers.js?v=18';
+import { buildPdf, buildXlsx, fileFrom, safeName } from './docs.js?v=18';
+import { HeroScan } from './home.js?v=18';
+import { JobCard, JobForm, CarJobsSheet, isOpenJob } from './jobs.js?v=18';
 
 export function DriversTab() {
   const { data, idx } = useStore();

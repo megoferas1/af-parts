@@ -1,9 +1,9 @@
 /* admin.js — إعدادات الإدارة: الموظفين، الأنواع، بيانات الشركة */
-import { html, useState, useEffect, Icon, Empty, Spinner, Field, Segmented, Sheet, Pill, openSheet, toast, confirmBox, NumInput } from './ui.js?v=17';
-import { rpcRaw, call, errText } from './api.js?v=17';
-import { useStore, reload } from './store.js?v=17';
-import * as L from './lib.js?v=17';
-import { run } from './items.js?v=17';
+import { html, useState, useEffect, Icon, Empty, Spinner, Field, Segmented, Sheet, Pill, openSheet, toast, confirmBox, NumInput } from './ui.js?v=18';
+import { rpcRaw, call, errText } from './api.js?v=18';
+import { useStore, reload } from './store.js?v=18';
+import * as L from './lib.js?v=18';
+import { run } from './items.js?v=18';
 
 export function AdminSheet({ close }) {
   const [seg, setSeg] = useState('staff');
@@ -25,7 +25,7 @@ function StaffPanel() {
     <button class="btn" onClick=${() => openSheet(StaffForm, { onDone: load })}><${Icon} name="plus" size=${22} /> موظف جديد</button>
     ${list === null ? html`<${Spinner} />` : list.length === 0 ? html`<${Empty} icon="users" text="لسه مفيش موظفين" />`
       : html`<div class="card tight">${list.map((s) => html`<button class="lrow" key=${s.id} onClick=${() => openSheet(StaffForm, { s, onDone: load })}>
-          <span class="avatar sm">${s.name.charAt(0)}</span><span class="grow"><b>${s.name}</b>${s.can_invoice && html`<small>بيعمل فواتير</small>`}</span>
+          <span class="avatar sm">${s.name.charAt(0)}</span><span class="grow"><b>${s.name}</b>${(s.skill || s.can_invoice) && html`<small>${[s.skill, s.can_invoice && 'بيعمل فواتير'].filter(Boolean).join(' · ')}</small>`}</span>
           ${s.can_invoice && html`<${Pill} tone="green">فواتير<//>`}<${Icon} name="key" size=${18} /></button>`)}</div>`}
   </div>`;
 }
@@ -34,6 +34,7 @@ function StaffForm({ s, onDone, close }) {
   const [name, setName] = useState(s ? s.name : '');
   const [pin, setPin] = useState('');
   const [inv, setInv] = useState(s ? !!s.can_invoice : false);
+  const [skill, setSkill] = useState(s ? s.skill || '' : '');
   const [busy, setBusy] = useState(false);
   async function save() {
     if (!name.trim()) return toast('اكتب الاسم', 'bad');
@@ -43,6 +44,7 @@ function StaffForm({ s, onDone, close }) {
     try {
       const sid = await rpcRaw('admin_save_staff', { p_id: s ? s.id : null, p_name: name, p_pin: pin || null });
       if (inv !== (s ? !!s.can_invoice : false)) await rpcRaw('admin_set_staff_invoice', { p_id: sid || (s && s.id), p_on: inv });
+      if (skill.trim() !== (s ? s.skill || '' : '')) await call('staff_set_skill', { p_staff: sid || (s && s.id), p_skill: skill });
       toast(s ? 'اتحفظ' : `اتضاف — الرقم السري: ${pin}`);
       onDone && onDone(); close();
     } catch (e) { toast(errText(e), 'bad'); }
@@ -56,6 +58,8 @@ function StaffForm({ s, onDone, close }) {
     footer=${html`<div class="stack"><button class="btn bigbtn" disabled=${busy} onClick=${save}>${busy ? 'لحظة...' : 'حفظ'}</button>
       ${s && html`<button class="btn ghost" onClick=${remove}><${Icon} name="trash" size=${18} /> شيل الموظف</button>`}</div>`}>
     <${Field} label="الاسم" req><input class="input" value=${name} onInput=${(e) => setName(e.target.value)} /><//>
+    <${Field} label="بيعرف يعمل إيه" hint="بيتملى لوحده من الشغل اللي بيتوزّع عليه، وتقدر تعدّله">
+      <input class="input" value=${skill} placeholder="لحام، تقطيع، سيت أب..." onInput=${(e) => setSkill(e.target.value)} /><//>
     <${Field} label=${s ? 'رقم سري جديد (سيبه فاضي لو مش عايز تغيّره)' : 'الرقم السري'} req=${!s} hint="من 4 لـ 8 أرقام، ادّيه للموظف">
       <input class="input pin" inputmode="numeric" maxlength="8" value=${pin} onInput=${(e) => setPin(e.target.value.replace(/\D/g, ''))} /><//>
     <label class="check big"><input type="checkbox" checked=${inv} onChange=${(e) => setInv(e.target.checked)} />

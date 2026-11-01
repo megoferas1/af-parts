@@ -1,20 +1,20 @@
 /* app.js — نقطة البداية: الدخول والتابات */
-import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=17';
-import { SUPABASE_URL } from './config.js?v=17';
-import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=17';
-import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=17';
-import { HomeTab } from './home.js?v=17';
-import { DriversTab } from './drivers.js?v=17';
-import { PrintQueueFab } from './stickers.js?v=17';
-import { ToolsTab } from './tools.js?v=17';
-import { ExportTab } from './export.js?v=17';
-import { TripsTab } from './trips.js?v=17';
-import { InvoicesTab } from './invoices.js?v=17';
-import { JobsTab, isOpenJob } from './jobs.js?v=17';
-import { ItemSheet, startNewItem } from './items.js?v=17';
-import { CODE_RE } from './qr.js?v=17';
-import { UnitSheet } from './units.js?v=17';
-import { AssistantFab } from './assistant.js?v=171';
+import { html, render, useState, useEffect, Icon, Field, Segmented, Splash, ToastHost, SheetHost, BottomNav, toast, openSheet, closeAllSheets } from './ui.js?v=18';
+import { SUPABASE_URL } from './config.js?v=18';
+import { sb, rpcRaw, call, staffSession, lastRole, setToken, setUnauthorizedHandler, errText } from './api.js?v=18';
+import { useStore, reload, resetStore, getStore, canInvoice } from './store.js?v=18';
+import { HomeTab } from './home.js?v=18';
+import { DriversTab } from './drivers.js?v=18';
+import { PrintQueueFab } from './stickers.js?v=18';
+import { ToolsTab } from './tools.js?v=18';
+import { ExportTab } from './export.js?v=18';
+import { TripsTab } from './trips.js?v=18';
+import { InvoicesTab } from './invoices.js?v=18';
+import { JobsTab, isOpenJob } from './jobs.js?v=18';
+import { ItemSheet, startNewItem } from './items.js?v=18';
+import { CODE_RE } from './qr.js?v=18';
+import { UnitSheet } from './units.js?v=18';
+import { AssistantFab } from './assistant.js?v=18';
 
 /* لو حصل خطأ غير متوقع نعرضه بدل شاشة بيضا */
 function showFatal(msg) {

@@ -484,7 +484,7 @@ begin
                          from public.items i), '[]'::jsonb),
     'price_items', coalesce((select jsonb_agg(case when inv then to_jsonb(x) else to_jsonb(x) - 'price' - 'price_cur' end order by x.kind, x.name)
                                from public.price_items x), '[]'::jsonb),
-    'staff', coalesce((select jsonb_agg(jsonb_build_object('id', e.id, 'name', e.name) order by e.name) from public.staff e where e.active), '[]'::jsonb),
+    'staff', coalesce((select jsonb_agg(jsonb_build_object('id', e.id, 'name', e.name, 'skill', e.skill) order by e.name) from public.staff e where e.active), '[]'::jsonb),
     'jobs', public._job_jsons(inv),
     'invoices', case when inv then coalesce((select jsonb_agg(to_jsonb(v) order by v.inv_date desc, v.created_at desc)
                      from (select * from public.invoices order by inv_date desc, created_at desc limit 300) v), '[]'::jsonb)
@@ -1481,7 +1481,7 @@ create or replace function public.admin_staff()
 returns jsonb language plpgsql security definer set search_path = public as $$
 begin
   perform public._need_admin();
-  return coalesce((select jsonb_agg(jsonb_build_object('id', id, 'name', name, 'can_invoice', can_invoice) order by name)
+  return coalesce((select jsonb_agg(jsonb_build_object('id', id, 'name', name, 'can_invoice', can_invoice, 'skill', skill) order by name)
                      from public.staff where active), '[]'::jsonb);
 end $$;
 
@@ -2331,3 +2331,36 @@ end $$;
 --    select id from auth.users where email = 'YOUR-EMAIL@example.com'
 --    on conflict do nothing;
 -- =====================================================================
+
+-- v18: شغلانة كل موظف (لحام، سيت أب...) عشان المدير يوزّع الشغل على أساسها
+alter table public.staff add column if not exists skill text not null default '';
+
+create or replace function public.staff_set_skill(p_token text, p_staff uuid, p_skill text)
+returns void language plpgsql security definer set search_path = public, extensions as $$
+declare a jsonb := public._actor(p_token);
+begin
+  update public.staff set skill = left(trim(coalesce(p_skill, '')), 200) where id = p_staff and active;
+  if not found then raise exception 'not_found'; end if;
+end $$;
+
+-- المدير بيتعلم لوحده: أي شغلانة تتوزّع على موظف، تتسجل إنه بيعرف يعملها
+create or replace function public._learn_skill()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare t text := trim(coalesce(new.title, ''));
+begin
+  if new.kind = 'task' and new.staff_id is not null and t <> ''
+     and (tg_op = 'INSERT' or new.staff_id is distinct from old.staff_id or new.title is distinct from old.title) then
+    update public.staff
+       set skill = left(case when skill = '' then t else skill || '، ' || t end, 1000)
+     where id = new.staff_id and position(lower(t) in lower(skill)) = 0;
+  end if;
+  return new;
+end $$;
+drop trigger if exists job_lines_learn_skill on public.job_lines;
+create trigger job_lines_learn_skill after insert or update of staff_id, title on public.job_lines
+  for each row execute function public._learn_skill();
+-- اللي اتوزّع قبل كده
+update public.staff e set skill = left(concat_ws('، ', nullif(e.skill, ''), x.t), 1000)
+  from (select l.staff_id, string_agg(distinct trim(l.title), '، ') t from public.job_lines l
+         where l.kind = 'task' and l.staff_id is not null and trim(l.title) <> '' group by l.staff_id) x
+ where x.staff_id = e.id and e.skill = '';

@@ -1,20 +1,20 @@
 /* assistant.js — «المدير»: مساعد بتكلمه عربي أو إنجليزي، بيرد من بيانات السيستم وبيعمل الحاجات بعد ما توافق
    الذكاء من Gemini (مجاني) عن طريق Supabase Edge Function اسمها ai — المفتاح هناك مش هنا.
    ولو الذكاء مش متاح، الزراير اللي تحت والبحث العادي شغالين. */
-import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=17';
-import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=17';
-import { sb, call, errText, staffSession } from './api.js?v=17';
-import { useStore, getStore, reload, canInvoice } from './store.js?v=17';
-import * as L from './lib.js?v=17';
-import { ItemSheet, startNewItem, InstallForm } from './items.js?v=17';
-import { DriverSheet } from './drivers.js?v=17';
-import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=17';
-import { TripSheet, TripForm } from './trips.js?v=17';
-import { ShipmentSheet, ShipmentForm } from './export.js?v=17';
-import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=17';
-import { FileReady } from './stickers.js?v=17';
-import { LogSheet } from './log.js?v=17';
-import { scanOpen } from './home.js?v=17';
+import { html, useState, useEffect, useRef, Icon, Sheet, Spinner, openSheet, toast } from './ui.js?v=18';
+import { SUPABASE_URL, SUPABASE_KEY } from './config.js?v=18';
+import { sb, call, errText, staffSession } from './api.js?v=18';
+import { useStore, getStore, reload, canInvoice } from './store.js?v=18';
+import * as L from './lib.js?v=18';
+import { ItemSheet, startNewItem, InstallForm } from './items.js?v=18';
+import { DriverSheet } from './drivers.js?v=18';
+import { JobSheet, JobForm, JOB_ST, isOpenJob, isLate } from './jobs.js?v=18';
+import { TripSheet, TripForm } from './trips.js?v=18';
+import { ShipmentSheet, ShipmentForm } from './export.js?v=18';
+import { InvoiceSheet, InvoiceForm, invoiceFile, usdRate, conv } from './invoices.js?v=18';
+import { FileReady } from './stickers.js?v=18';
+import { LogSheet } from './log.js?v=18';
+import { scanOpen } from './home.js?v=18';
 
 /* ============================================================ أدوات صغيرة */
 const st = () => getStore();
@@ -197,6 +197,34 @@ const READ = {
       };
     },
   },
+  past_jobs: {
+    d: 'اتعلم من الشغل القديم: أوامر شغل شبه الشغلانة دي اتعمل فيها إيه بالظبط، مين عمل كل شغلانة، الساعات، والخامات، وخدت كام يوم. استخدمها قبل ما تقسّم أي عربية داخلة عشان تقسّم زي ما اتعمل قبل كده',
+    p: S_('object', { query: str('الشغل أو العربية (زي: كيت زاوية E36، رول كيج، تغيير مساعدين)') }, ['query']),
+    run({ query }) {
+      const { data } = st();
+      const hay = (j) => [j.title, j.kind && KIND_JOB[j.kind], ...(j.lines || []).map((l) => l.title), (st().idx.cars.get(j.car_id) || {}).name].filter(Boolean).join(' ');
+      const done = (j) => (j.lines || []).filter((l) => l.kind === 'task').length > 0;
+      const found = smartFind(data.jobs.filter(done), hay, query).slice(0, 6);
+      if (!found.length) return { found: 0, note: 'مفيش شغل قديم شبهها. قسّمها انت.' };
+      return {
+        found: found.length,
+        jobs: found.map((j) => {
+          const tasks = (j.lines || []).filter((l) => l.kind === 'task');
+          const mats = (j.lines || []).filter((l) => l.kind !== 'task');
+          const hrs = j.hours || [];
+          const days = j.status === 'delivered' && j.status_at ? Math.max(1, Math.round((new Date(j.status_at) - new Date(j.created_at)) / 864e5)) : undefined;
+          return {
+            ref: j.ref, title: j.title, type: KIND_JOB[j.kind || ''] || undefined, status: (JOB_ST[j.status] || {}).label,
+            tasks: tasks.map((l) => l.title + (l.staff_id ? ' ← ' + staffName(l.staff_id) : '') + (l.done ? ' ✓' + (l.done_by ? ' (' + l.done_by + ')' : '') : '')),
+            materials: mats.slice(0, 15).map((l) => l.title + (l.qty ? ' ×' + l.qty : '')),
+            total_hours: r2(L.sum(hrs, (h) => Number(h.hours))) || undefined,
+            hours_by: Object.entries(hrs.reduce((a, h) => { const n = staffName(h.staff_id) || '؟'; a[n] = (a[n] || 0) + Number(h.hours); return a; }, {})).map(([n, h]) => n + ': ' + r2(h)),
+            days_to_deliver: days,
+          };
+        }),
+      };
+    },
+  },
   staff_work: {
     d: 'الشغل اللي على كل موظف (أو موظف واحد): الشغلانات اللي لسه، وساعاته في آخر 7 أيام. استخدمها لتقسيم المهام',
     p: S_('object', { staff: str('اسم الموظف (اختياري)') }),
@@ -209,6 +237,7 @@ const READ = {
       return {
         staff: people.map((s) => ({
           name: s.name,
+          knows: s.skill || 'لسه مفيش',
           open_tasks: open.flatMap((j) => (j.lines || []).filter((l) => l.kind === 'task' && !l.done && l.staff_id === s.id).map((l) => j.ref + ': ' + l.title)),
           responsible_for: open.filter((j) => j.staff_id === s.id).map((j) => j.ref),
           hours_last_7_days: r2(L.sum(data.jobs.flatMap((j) => j.hours || []).filter((h) => h.staff_id === s.id && h.work_date >= since), (h) => Number(h.hours))),
@@ -375,6 +404,23 @@ const WRITE = {
     async exec(o) {
       for (const x of o.list) await call('job_line_assign', { p_id: x.line.id, p_staff: x.staff ? x.staff.id : null });
       return { done: 'الشغل اتوزع' };
+    },
+  },
+  set_skill: {
+    d: 'سجّل إن موظف بيعرف يعمل شغلانة معينة (لو الإدارة قالت كده صراحة). ملحوظة: أي شغلانة بتتوزّع على موظف بتتسجل لوحدها إنه بيعرفها',
+    p: S_('object', { people: arr(S_('object', { staff: str('الموظف'), skill: str('اللي بيعرف يعمله (كله)، أو فاضي عشان تمسحه') }, ['staff', 'skill']), 'مين شغلته إيه') }, ['people']),
+    check(a) {
+      const list = [];
+      for (const x of a.people || []) {
+        const r = findStaff(x.staff); if (!r.one) return r.many ? ambig('موظف', r.many, (y) => y.name) : notFound('موظف', x.staff);
+        list.push({ s: r.one, skill: String(x.skill || '').trim() });
+      }
+      return list.length ? { ok: { list } } : { error: 'مفيش حد' };
+    },
+    card: (o) => ({ title: 'الموظفين بيعرفوا يعملوا إيه', icon: 'user', list: o.list.map((x) => x.s.name + ' ← ' + (x.skill || 'من غير')) }),
+    async exec(o) {
+      for (const x of o.list) await call('staff_set_skill', { p_staff: x.s.id, p_skill: x.skill });
+      return { done: 'اتحفظت' };
     },
   },
   tasks_done: {
@@ -620,7 +666,7 @@ function systemText() {
   return `إنت «المدير»، مساعد جراش AF Fabworks جوه ابلكيشن AF Parts. الجراش في العاشر من رمضان: فابريكيشن وتجهيز عربيات دريفت، تصنيع قطع وتصديرها (كيت زاوية ANG، قواعد ماتور ENG، دراعات ARM، ضبط تو TOE، رول كيج CAG، تعليق SUS، شاسيه CHS)، صيانة عربيات السواقين، وطلعات سباق وتمرين.
 
 النهارده ${L.todayStr()} (${L.fmtDate(L.todayStr())}). اللي بيكلمك: ${me.kind === 'admin' ? 'الإدارة' : me.name + ' (موظف)'}${canInvoice() ? '، ومعاه صلاحية الفواتير والأسعار' : '، ومعندوش صلاحية فواتير أو أسعار (ما تقولش أسعار خالص)'}.
-الموظفين: ${data.staff.map((s) => s.name).join('، ') || 'مفيش'}.
+الموظفين واللي كل واحد بيعرف يعمله (المدير بيتعلمه لوحده من الشغل اللي اتوزع عليه قبل كده): ${data.staff.map((s) => s.name + ' [' + (s.skill || 'لسه مفيش') + ']').join(' · ') || 'مفيش'}.
 السواقين وعربياتهم: ${drivers || 'مفيش'}.
 
 طريقتك:
@@ -629,7 +675,8 @@ function systemText() {
 - أي معلومة لازم تجيبها من الأدوات، وما تألفش حاجة. «فين كذا؟» أو «عندنا كذا؟» → find، وقول المكان والكمية وبتاعة مين.
 - لما المستخدم يطلب حاجة تتعمل، نادي الأداة على طول. الابلكيشن بيعرض عليه كارت يوافق عليه، فما تسألوش «متأكد؟». وبعد ما تتعمل قول النتيجة في سطر.
 - لو الأداة رجّعت ambiguous اسأل يقصد أنهي واحد. ولو not_found قول كده واقترح.
-- استلام عربية: اسأل الأول «سيت أب ولا فابريكيشن؟» لو مش واضح. السيت أب زي: تغيير مساعدين، تغيير سوست المساعدين، تركيب سواي بار، ضبط تو، ضبط كامبر وزوايا، ضبط ارتفاع، كوينات. الفابريكيشن زي: سمكرة، لحام، تقطيع، رول كيج، تقوية شاسيه، صالة، قواعد ماتور، كيت زاوية. بعدين اسأل «هتعمل فيها إيه بالظبط؟» وقسّم الكلام لشغلانات صغيرة واضحة، واقترح كل شغلانة على موظف (شوف staff_work عشان توزّع على اللي فاضي)، واسأل عن ميعاد التسليم. لما تبقى عارف السواق والعربية والشغل، اعمل create_job.
+- استلام عربية: اسأل الأول «سيت أب ولا فابريكيشن؟» لو مش واضح. السيت أب زي: تغيير مساعدين، تغيير سوست المساعدين، تركيب سواي بار، ضبط تو، ضبط كامبر وزوايا، ضبط ارتفاع، كوينات. الفابريكيشن زي: سمكرة، لحام، تقطيع، رول كيج، تقوية شاسيه، صالة، قواعد ماتور، كيت زاوية. بعدين اسأل «هتعمل فيها إيه بالظبط؟»، وشوف past_jobs الأول: لو فيه شغل شبهها قبل كده، قسّمها بنفس الشغلانات ونفس الترتيب، واقترح نفس الموظفين، وقول المتوقع (ساعات وأيام) من غير ما تسأل كتير. وقسّم الكلام لشغلانات صغيرة واضحة، واقترح كل شغلانة على موظف: الأول للي عمل الشغلانة دي أو شبهها قبل كده، ولو فيه أكتر من واحد ينفع اختار الأفضى (شوف staff_work)، واسأل عن ميعاد التسليم. لما تبقى عارف السواق والعربية والشغل، اعمل create_job.
+- توزيع الشغل: كل شغلانة اقترحها على الموظف اللي عملها أو عمل حاجة شبهها قبل كده (من اللي بين [] جنب اسمه، ومن past_jobs). لو أكتر من واحد يعرفها، اختار الأفضى (staff_work). لو محدش عملها قبل كده، اقترح وقول إنها أول مرة. ولما الإدارة تقول «أسامة هيعمل كذا» نفّذ على طول، والسيستم هيفتكر إن أسامة بيعرفها. لو قالت صراحة «فلان بيعرف كذا» من غير شغل، سجّلها بـ set_skill.
 - الفواتير: هات الأسعار من prices الأول واستخدم price_item_id أو product_id. السواقين غالباً بالجنيه وعربي، وعملاء التصدير بالدولار وإنجليزي. لو بند ملوش سعر اسأل عليه. بعد ما الفاتورة تتعمل، الابلكيشن بيطلّع زرار PDF يتبعت واتساب.
 - مسح أي حاجة أو التراجع عن حركة مش من عندك: قول للمستخدم يعملها من الابلكيشن (للإدارة بس).
 - التركيب على عربية والصور والاستيكرات: افتح الشاشة بأداة open.
@@ -643,8 +690,18 @@ let BUSY = false;
 const subs = new Set();
 const emit = () => subs.forEach((f) => f());
 function push(m) { MSGS = [...MSGS, { id: Date.now() + Math.random(), ...m }]; emit(); return MSGS[MSGS.length - 1].id; }
+// كل واحد شاته لوحده: لو اللي داخل على الموبايل اتغيّر، الشات يتمسح
+let OWNER = null;
+function ownerCheck() {
+  const me = (getStore().data || {}).me || {};
+  const k = me.kind === 'admin' ? 'admin' : (me.id || me.name || '');
+  if (OWNER !== null && OWNER !== k) { HIST = []; MSGS = []; BUSY = false; }
+  OWNER = k;
+}
 function patch(id, p) { MSGS = MSGS.map((m) => (m.id === id ? { ...m, ...p } : m)); emit(); }
 
+// ترتيب موديلات Gemini (الأسرع الأول). السيرفر بيجرب اللي بعده لو واحد مش متاح.
+const AI_MODELS = ['gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-flash-lite-latest'];
 async function askAI(contents) {
   let auth = 'Bearer ' + SUPABASE_KEY;
   try { const { data } = await sb.auth.getSession(); if (data && data.session) auth = 'Bearer ' + data.session.access_token; } catch (e) { /* موظف */ }
@@ -653,7 +710,7 @@ async function askAI(contents) {
     const r = await fetch(SUPABASE_URL + '/functions/v1/ai', {
       method: 'POST', signal: ctl.signal,
       headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: auth },
-      body: JSON.stringify({ token: staffSession.token || '', system: systemText(), tools: toolDecls(), contents }),
+      body: JSON.stringify({ token: staffSession.token || '', models: AI_MODELS, system: systemText(), tools: toolDecls(), contents }),
     });
     const j = await r.json().catch(() => ({ error: 'http_' + r.status }));
     if (!r.ok || j.error) { const e = new Error(j.error || 'http_' + r.status); e.detail = j.detail || ''; throw e; }
@@ -712,6 +769,7 @@ async function runTool(fc) {
 
 export async function send(text) {
   text = String(text || '').trim();
+  ownerCheck();
   if (!text || BUSY) return;
   BUSY = true; emit();
   push({ kind: 'me', text });
@@ -832,7 +890,7 @@ function InvoiceMsg({ m }) {
 
 function Msg({ m }) {
   if (m.kind === 'me') return html`<div class="ai-msg me" dir="auto">${m.text}</div>`;
-  if (m.kind === 'ai') return html`<div class="ai-msg bot" dir="auto">${m.text}</div>`;
+  if (m.kind === 'ai') return html`<div class="ai-msg bot" dir="auto">${String(m.text || '').split(/\*\*(.+?)\*\*/g).map((x, i) => (i % 2 ? html`<b>${x}</b>` : x.replace(/^\s*[*-]\s+/gm, '• ')))}</div>`;
   if (m.kind === 'err') return html`<div class="ai-msg err"><${Icon} name="alert" size=${16} /> ${m.text}</div>`;
   if (m.kind === 'wait') return MSGS.some((x) => x.kind === 'confirm' && x.state === 'wait') ? null : html`<div class="ai-msg bot wait"><i></i><i></i><i></i></div>`;
   if (m.kind === 'confirm') return html`<${ConfirmCard} m=${m} />`;
@@ -844,6 +902,7 @@ function Msg({ m }) {
 }
 
 export function AssistantSheet({ close, first }) {
+  ownerCheck();
   useChat();
   useStore();
   const [t, setT] = useState('');
