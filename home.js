@@ -12,7 +12,7 @@ import { BlankStickersSheet } from './stickers.js?v=17';
 import { LogSheet } from './log.js?v=17';
 import { AdminSheet } from './admin.js?v=17';
 import { isOpenJob, isLate } from './jobs.js?v=17';
-import { openAssistant } from './assistant.js?v=17';
+import { openAssistant } from './assistant.js?v=171';
 
 /* السكان العام: يفتح الحاجة، أو يسجّل استيكر فاضي */
 export function scanOpen() {

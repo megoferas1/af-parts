@@ -14,7 +14,7 @@ import { JobsTab, isOpenJob } from './jobs.js?v=17';
 import { ItemSheet, startNewItem } from './items.js?v=17';
 import { CODE_RE } from './qr.js?v=17';
 import { UnitSheet } from './units.js?v=17';
-import { AssistantFab } from './assistant.js?v=17';
+import { AssistantFab } from './assistant.js?v=171';
 
 /* لو حصل خطأ غير متوقع نعرضه بدل شاشة بيضا */
 function showFatal(msg) {

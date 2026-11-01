@@ -54,6 +54,21 @@ function findCar(driverId, q) {
   return pick(cars, q, (c) => c.name + ' | ' + c.plate);
 }
 const opts = (arr, f) => arr.map(f);
+/* بحث مرن: يشيل كلام زي «فين / بتاع / ال...» ولو مفيش نتيجة يجرّب بأي كلمة */
+const STOP = new Set(['فين', 'عندنا', 'هل', 'في', 'ايه', 'اللي', 'بتاع', 'بتاعه', 'بتاعت', 'على', 'من', 'كام', 'مكان', 'where', 'is', 'the', 'do', 'we', 'have', 'a', 'any']);
+function words(q) {
+  return N(q).replace(/[؟?!.,،]/g, ' ').split(' ').filter((w) => w && !STOP.has(w)).map((w) => (w.length > 4 && w.startsWith('ال') ? w.slice(2) : w));
+}
+function smartFind(list, hay, q) {
+  let r = list.filter((x) => L.matches(hay(x), q));
+  if (r.length) return r;
+  const ws = words(q);
+  if (!ws.length) return [];
+  r = list.filter((x) => { const h = N(hay(x)); return ws.every((w) => h.includes(w)); });
+  if (r.length) return r;
+  return list.map((x) => { const h = N(hay(x)); return [x, ws.filter((w) => h.includes(w)).length]; })
+    .filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([x]) => x);
+}
 const ambig = (what, arr, f) => ({ error: 'ambiguous', what, options: opts(arr, f), hint: 'اسأل المستخدم يقصد أنهي واحد' });
 const notFound = (what, q) => ({ error: 'not_found', what, query: q });
 
@@ -130,7 +145,7 @@ const READ = {
     run({ query, kind }) {
       const { data, idx } = st();
       const k = kind && kind !== 'any' ? [kind] : null;
-      const items = data.items.filter((i) => (!k || k.includes(i.kind)) && L.matches(idx.hay.get(i.id), query));
+      const items = smartFind(data.items.filter((i) => !k || k.includes(i.kind)), (i) => idx.hay.get(i.id), query);
       const drivers = data.drivers.filter((d) => L.matches(d.name + ' ' + d.phone, query)).slice(0, 5);
       const customers = data.customers.filter((c) => L.matches(c.name + ' ' + c.country, query)).slice(0, 5);
       return {
@@ -633,7 +648,7 @@ function patch(id, p) { MSGS = MSGS.map((m) => (m.id === id ? { ...m, ...p } : m
 async function askAI(contents) {
   let auth = 'Bearer ' + SUPABASE_KEY;
   try { const { data } = await sb.auth.getSession(); if (data && data.session) auth = 'Bearer ' + data.session.access_token; } catch (e) { /* موظف */ }
-  const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 45000);
+  const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 90000);
   try {
     const r = await fetch(SUPABASE_URL + '/functions/v1/ai', {
       method: 'POST', signal: ctl.signal,
@@ -641,7 +656,7 @@ async function askAI(contents) {
       body: JSON.stringify({ token: staffSession.token || '', system: systemText(), tools: toolDecls(), contents }),
     });
     const j = await r.json().catch(() => ({ error: 'http_' + r.status }));
-    if (!r.ok || j.error) throw new Error(j.error || 'http_' + r.status);
+    if (!r.ok || j.error) { const e = new Error(j.error || 'http_' + r.status); e.detail = j.detail || ''; throw e; }
     return j.content || { role: 'model', parts: [] };
   } finally { clearTimeout(tm); }
 }
@@ -653,8 +668,8 @@ const AI_ERR = {
 const aiErrText = (e) => {
   const m = (e && e.message) || '';
   if (AI_ERR[m]) return AI_ERR[m];
-  if (/http_404|Failed to fetch|NetworkError|Load failed|abort/i.test(m)) return 'المساعد الذكي مش متاح دلوقتي (يا إما مفيش نت، يا إما لسه ما اتركبش على Supabase).';
-  return 'المساعد الذكي وقع: ' + m.slice(0, 80);
+  if (/http_404|Failed to fetch|NetworkError|Load failed|abort/i.test(m)) return 'المساعد الذكي مش متاح دلوقتي (يا إما مفيش نت، يا إما لسه ما اتركبش على Supabase). [' + m.slice(0, 40) + ']';
+  return 'المساعد الذكي وقع: ' + m.slice(0, 40) + (e && e.detail ? ' — ' + String(e.detail).slice(0, 160) : '');
 };
 
 /* نقصّ الكلام القديم عشان الطلب ما يكبرش (من أول رسالة مستخدم عادية) */
@@ -736,7 +751,7 @@ const dedupe = (refs) => { const s = new Set(); return refs.filter((r) => { cons
 
 /* من غير AI: بحث عادي في السيستم */
 function localAnswer(text) {
-  const q = text.replace(/(فين|عندنا|هل|في|ايه|إيه|where|is|do we have|\?|؟)/gi, ' ').trim();
+  const q = words(text).join(' ');
   if (!q) return;
   const r = READ.find.run({ query: q });
   if (r.items.length) push({ kind: 'local', items: r.items.slice(0, 8) });
